@@ -1,0 +1,130 @@
+{
+    "request": {
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": "Act as a quantitative analyst. Using `yfinance`, fetch 1-minute and 5-minute historical data for a given ticker (e.g., 'ES=F' or 'AAPL') for the last 5 trading days. Store this data in Pandas DataFrames with datetime indexes. Name the main DataFrame `df_5m` for the 5-minute data and `df_1m` for the 1-minute data. Ensure the data includes columns: Open, High, Low, Close, Volume."
+                    }
+                ]
+            }
+        ]
+    }
+}
+{
+    "request": {
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": "Using the 5-minute data (`df_5m`), create a function to identify swing highs and swing lows. A swing high is defined as a candle where the high is higher than the two candles before it and the two candles after it. A swing low is where the low is lower than the two candles before and after it. **Important**: To avoid look-ahead bias in backtesting, the swing point must only be confirmed after candle `i+2` has closed. Therefore, record the swing high/low price at index `i+2` (or at the time of confirmation) and ensure that any subsequent logic only uses this confirmed value after that point. Add columns `swing_high` and `swing_low` to the DataFrame containing the confirmed price at the confirmation candle (or NaN elsewhere)."
+                    }
+                ]
+            }
+        ]
+    }
+}
+{
+    "request": {
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": "Define a function to detect a 'Displacement Move' or 'Expansion'. A displacement is identified by a candle where the range (High - Low) is at least 1.5 times the 20-period Average True Range (ATR). Calculate ATR using the standard method: True Range = max(high - low, abs(high - prev_close), abs(low - prev_close)), then take a 20-period SMA. Add a column `is_displacement` to `df_5m` that is True if the candle's range > 1.5 * ATR(20)."
+                    }
+                ]
+            }
+        ]
+    }
+}
+{
+    "request": {
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": "Using the swing highs/lows defined earlier, identify a 'Market Structure Shift' (MSS) that occurs **within 10 candles** after a displacement candle. \n- For a Bullish MSS: Price must break above the most recent confirmed swing high that occurred **before** the displacement. The break is considered valid if a candle's close exceeds that swing high.\n- For a Bearish MSS: Price must break below the most recent confirmed swing low before the displacement.\nCreate a column `mss_signal` that labels the index where this break occurs. Ensure that you only consider swing highs/lows that were confirmed prior to the displacement (to avoid look-ahead)."
+                    }
+                ]
+            }
+        ]
+    }
+}
+{
+    "request": {
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": "Write a function to identify a Fair Value Gap (FVG) in the 5-minute data. Use the 3-candle sequence relative to the displacement candle (index `i`). The FVG is defined by candles `i-1`, `i`, and `i+1`. \n- A Bullish FVG occurs when `Low[i+1] > High[i-1]`. The 'gap' area is between `High[i-1]` and `Low[i+1]`. The middle candle `i` should be the large-bodied expansion candle.\n- A Bearish FVG occurs when `High[i+1] < Low[i-1]`. The gap area is between `Low[i-1]` and `High[i+1]`.\nAdd columns:\n- `bullish_fvg_top` = `High[i-1]` (top of the gap) when a Bullish FVG is detected.\n- `bearish_fvg_bottom` = `Low[i-1]` (bottom of the gap) when a Bearish FVG is detected.\nStore these values at the time of the displacement candle (index `i`)."
+                    }
+                ]
+            }
+        ]
+    }
+}
+{
+    "request": {
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": "Combine the logic to generate final entry signals on the 5-minute DataFrame. A 'BUY' entry signal is generated when:\n1. A Bullish FVG was identified (i.e., `bullish_fvg_top` is not NaN).\n2. A Bullish MSS occurred **after** that displacement candle and within the 10-candle window.\n3. Subsequently, price retraces downward and touches or crosses below the `bullish_fvg_top` level. The retracement must occur after the MSS.\nCreate a column `entry_signal` that marks the candle where the retracement touches the gap with 'BUY' (or 'SELL' for the analogous bearish case). Ensure the entry is only triggered once per setup."
+                    }
+                ]
+            }
+        ]
+    }
+}
+{
+    "request": {
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": "To refine the entry precision, align the 5-minute entry signals with 1-minute data. When a 'BUY' signal is generated on the 5-minute chart at timestamp `T` (e.g., 10:00), switch to `df_1m`. Merge the `entry_signal` from `df_5m` into `df_1m` using a forward-fill on the timestamp index so that each 1-minute bar within the 5-minute interval knows the signal. Place a limit order at the exact `bullish_fvg_top` price. Confirm the entry only if a 1-minute candle trades at or below that price (for a buy) within the same 5-minute interval (i.e., between `T` and `T+5` minutes). Add a column `confirmed_entry` in the 1-minute DataFrame marking the exact time of touch."
+                    }
+                ]
+            }
+        ]
+    }
+}
+{
+    "request": {
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": "Define risk management rules. For a confirmed BUY entry:\n- **Stop Loss**: Place it 1 tick below the most recent confirmed swing low that occurred **prior to the displacement move**. Ensure this swing low is identified without look-ahead.\n- **Take Profit**: Set two targets. \n  - TP1: A 1:2 risk-to-reward ratio (i.e., entry price + 2 × (entry price - stop loss)). \n  - TP2: The 'External Range Liquidity', typically the previous session's high or the next major swing high on a higher timeframe.\nAdd columns `sl_price`, `tp1_price`, `tp2_price` to the 5-minute DataFrame at the entry candle. For partial profit-taking, assume 50% of the position is closed at TP1, and the remaining 50% is closed at TP2 or stop loss."
+                    }
+                ]
+            }
+        ]
+    }
+}
+{
+    "request": {
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": "Run a backtest on the 5-minute DataFrame based on the confirmed entries and the partial exit logic. Assume we enter at the `bullish_fvg_top` price (or the actual touch price from 1-minute data). Track each trade: entry time, entry price, stop loss, TP1, TP2. Simulate closing 50% at TP1 if reached, and the remaining 50% at TP2 if reached, otherwise at stop loss. Calculate total PnL, win rate (percentage of trades where at least TP1 was hit), and profit factor (gross profit / gross loss). Print a summary and a table of the first 5 trades."
+                    }
+                ]
+            }
+        ]
+    }
+}
+{
+    "request": {
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": "Plot the last 3 days of price data from the 5-minute DataFrame. On the chart:\n1. Mark confirmed swing highs/lows with dots (using the confirmed timestamps).\n2. Highlight displacement candles in yellow.\n3. Shade the Fair Value Gaps (FVG) as light green rectangles between `High[i-1]` and `Low[i+1]` for bullish gaps, and light red for bearish gaps.\n4. Plot arrows where the MSS occurred (green up arrow for bullish, red down arrow for bearish).\n5. Plot green upward arrows at the final confirmed BUY entry signals.\n6. Optionally draw horizontal lines for stop loss and take profit levels for a representative trade.\nUse matplotlib or plotly for visualization."
+                    }
+                ]
+            }
+        ]
+    }
+}

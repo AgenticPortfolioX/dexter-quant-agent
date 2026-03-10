@@ -1,0 +1,37 @@
+{
+    "last_updated": "2026-02-24T17:20:55.789844-05:00",
+    "strategies": {
+        "Triple RSI Mean Reversion": {
+            "win_rate": 0,
+            "avg_pnl": 0,
+            "avg_win": 0,
+            "avg_loss": 0,
+            "total_trades": 0,
+            "score": 0.0
+        },
+        "Noon-Curve (Lunchbox)": {
+            "win_rate": 0,
+            "avg_pnl": 0,
+            "avg_win": 0,
+            "avg_loss": 0,
+            "total_trades": 0,
+            "score": 0.0
+        },
+        "Initial Balance (80%)": {
+            "win_rate": 0,
+            "avg_pnl": 0,
+            "avg_win": 0,
+            "avg_loss": 0,
+            "total_trades": 0,
+            "score": 0.0
+        },
+        "London Displacement": {
+            "win_rate": 0,
+            "avg_pnl": 0,
+            "avg_win": 0,
+            "avg_loss": 0,
+            "total_trades": 0,
+            "score": 0.0
+        }
+    }
+}

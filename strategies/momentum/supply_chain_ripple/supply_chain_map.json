@@ -1,0 +1,34 @@
+{
+    "TSM": [
+        "NVDA",
+        "AMD",
+        "AAPL",
+        "AVGO",
+        "QCOM"
+    ],
+    "ASML": [
+        "TSM",
+        "INTC",
+        "MU"
+    ],
+    "CAT": [
+        "DE",
+        "URI",
+        "TEX"
+    ],
+    "FDX": [
+        "AMZN",
+        "WMT",
+        "TGT"
+    ],
+    "MSFT": [
+        "CRWD",
+        "OKTA",
+        "NET"
+    ],
+    "NVDA": [
+        "SMCI",
+        "DELL",
+        "HPE"
+    ]
+}

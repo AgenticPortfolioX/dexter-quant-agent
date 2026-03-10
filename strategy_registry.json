@@ -1,0 +1,488 @@
+{
+    "live_trading": [
+        {
+            "name": "London Displacement",
+            "active_window": "02:00-05:00",
+            "script": "strategies/live_trading/london_displacement/london_displacement.py",
+            "assets": [
+                "USDJPY=X"
+            ],
+            "frequency": 60
+        },
+        {
+            "name": "Initial Balance (80%)",
+            "active_window": "09:30-10:30",
+            "script": "strategies/live_trading/initial_balance_80/initial_balance_80.py",
+            "assets": [
+                "SPY"
+            ],
+            "frequency": 60
+        },
+        {
+            "name": "Noon-Curve (Lunchbox)",
+            "active_window": "10:30-14:00",
+            "script": "strategies/live_trading/noon_curve_lunchbox/noon_curve_lunchbox.py",
+            "assets": [
+                "QQQ",
+                "SPY"
+            ],
+            "frequency": 60
+        },
+        {
+            "name": "MACD 200 Bounce (Refined)",
+            "active_window": "09:30-16:00",
+            "script": "strategies/live_trading/macd_200_bounce/macd_refined_v2.py",
+            "assets": [
+                "SPY",
+                "QQQ"
+            ],
+            "frequency": 60
+        },
+        {
+            "name": "SMC Focal Portfolio",
+            "active_window": "09:30-16:00",
+            "script": "strategies/live_trading/smc_focal_portfolio/smc_focal_portfolio.py",
+            "assets": [
+                "AAPL",
+                "DIA",
+                "JNJ",
+                "WMT",
+                "GS"
+            ],
+            "frequency": 60
+        },
+        {
+            "name": "Trinity Basket",
+            "active_window": "09:30-16:00",
+            "script": "trinity_test_scanner.py",
+            "assets": [
+                "GLD",
+                "FXY",
+                "FXE"
+            ],
+            "frequency": 60
+        },
+        {
+            "name": "Nasdaq-Day",
+            "active_window": "09:30-16:00",
+            "script": "strategies/validation/nasdaq_day_strategy.py",
+            "assets": [
+                "QQQ"
+            ]
+        },
+        {
+            "name": "Apex (Pivot Bounce)",
+            "active_window": "09:30-16:00",
+            "script": "strategies/Ai-strats/pivot_rsi_divergence.py",
+            "assets": [
+                "AMD",
+                "PLTR",
+                "IWM",
+                "SMCI",
+                "MSTR",
+                "AMZN",
+                "NVDA",
+                "META"
+            ],
+            "frequency": 3600
+        },
+        {
+            "name": "Gemini Velocity",
+            "active_window": "09:35-15:45",
+            "script": "strategies/live_trading/gemini_velocity/gemini_velocity_momentum.py",
+            "assets": [
+                "HOOD",
+                "COIN",
+                "TSM",
+                "ROKU"
+            ],
+            "frequency": 300
+        },
+        {
+            "name": "Double Break V3 (Elite Scanner)",
+            "active_window": "09:35-15:45",
+            "script": "strategies/live_trading/double_break_v3_elite/double_break_v3_elite.py",
+            "assets": [
+                "PYPL",
+                "TSM",
+                "MSFT",
+                "SMCI",
+                "ROKU",
+                "INTC",
+                "WMT",
+                "PG",
+                "AMZN",
+                "META"
+            ],
+            "frequency": 120
+        },
+        {
+            "name": "Matt-Rapid (Trend Flow)",
+            "active_window": "09:35-15:45",
+            "script": "strategies/live_trading/matt_rapid_trend/matt_rapid_trend.py",
+            "assets": [
+                "MSFT",
+                "SMCI",
+                "ROKU",
+                "NVDA",
+                "MSTR",
+                "PLTR",
+                "AAPL",
+                "TSLA",
+                "AMD",
+                "COIN"
+            ],
+            "frequency": 120
+        },
+        {
+            "name": "BigD (PO3/AMD)",
+            "active_window": "00:00-23:59",
+            "script": "strategies/live_trading/big_d/big_d.py",
+            "assets": [
+                "IBIT",
+                "ETHE",
+                "CLNK"
+            ],
+            "frequency": 300
+        },
+        {
+            "name": "LittleD (SFP)",
+            "active_window": "00:00-23:59",
+            "script": "strategies/live_trading/little_d/little_d.py",
+            "assets": [
+                "IBIT",
+                "ETHE",
+                "CLNK"
+            ],
+            "frequency": 3600
+        },
+        {
+            "name": "Sonnet (ORE + Regime)",
+            "label": "S1",
+            "series": "S-Series",
+            "active_window": "09:30-16:00",
+            "script": "strategies/Ai-strats/sonnet_ore_regime.py",
+            "assets": [
+                "MSTR",
+                "SNOW",
+                "COIN",
+                "ARM",
+                "CRWD",
+                "CRM",
+                "PLTR",
+                "TSM",
+                "TSLA",
+                "AVGO",
+                "PANW",
+                "AMD",
+                "ADBE",
+                "IWM",
+                "HOOD",
+                "ORCL",
+                "INTU",
+                "GS",
+                "GLD",
+                "LULU",
+                "ABNB"
+            ],
+            "frequency": 300,
+            "notes": "Opening Range Expansion + SPY Regime EMA Filter + Volume Delta. Max 1 signal/ticker/day. OR locks at 09:45 EST."
+        }
+    ],
+    "active_testing": [
+        {
+            "name": "Volcanix (VWAP Reclaim)",
+            "active_window": "09:35-15:45",
+            "script": "strategies/active_testing/volcanix_vwap_reclaim/vwap_reclaim_rvol.py",
+            "assets": [
+                "UNH",
+                "DIA",
+                "TSLA",
+                "IWM",
+                "SPY",
+                "V",
+                "PLTR",
+                "AMZN"
+            ],
+            "frequency": 300
+        },
+        {
+            "name": "PO3 + IFVG",
+            "active_window": "09:30-11:00",
+            "script": "strategies/active_testing/po3_ifvg_strategy.py",
+            "assets": [
+                "SPY",
+                "QQQ"
+            ],
+            "frequency": 60
+        },
+        {
+            "name": "NY ORB",
+            "active_window": "09:30-10:00",
+            "script": "strategies/active_testing/ny_orb_strategy.py",
+            "assets": [
+                "SPY",
+                "QQQ"
+            ],
+            "frequency": 3600
+        },
+        {
+            "name": "Wickless Candles",
+            "active_window": "00:00-23:59",
+            "script": "strategies/active_testing/wickless_candle_strategy.py",
+            "assets": [
+                "USDJPY=X",
+                "AUDUSD=X",
+                "USDCAD=X",
+                "QQQ",
+                "IWM",
+                "GC=F"
+            ],
+            "frequency": 3600
+        },
+        {
+            "name": "Dynamic + Daily Bias",
+            "active_window": "09:30-16:00",
+            "script": "strategies/active_testing/dynamic_bias_momentum_strategy.py",
+            "assets": [
+                "NVDA",
+                "GOOGL",
+                "TSLA",
+                "QQQ",
+                "PLTR",
+                "MSTR",
+                "COIN",
+                "SMCI"
+            ],
+            "frequency": 3600
+        },
+        {
+            "name": "Price Retreat (S1)",
+            "active_window": "09:30-16:00",
+            "script": "strategies/active_testing/strategy_1_price_retreat.py",
+            "assets": [
+                "SPY"
+            ],
+            "frequency": 3600
+        },
+        {
+            "name": "Turnaround Tuesday (S2)",
+            "active_window": "09:30-16:00",
+            "script": "strategies/active_testing/strategy_2_turnaround_tuesday.py",
+            "assets": [
+                "SPY",
+                "QQQ"
+            ],
+            "frequency": 3600
+        },
+        {
+            "name": "Low Close IBS (S3)",
+            "active_window": "09:30-16:00",
+            "script": "strategies/active_testing/strategy_3_low_close_ibs.py",
+            "assets": [
+                "SPY",
+                "QQQ"
+            ],
+            "frequency": 3600
+        },
+        {
+            "name": "DeMarker (S4)",
+            "active_window": "09:30-16:00",
+            "script": "strategies/active_testing/strategy_4_demarker.py",
+            "assets": [
+                "SPY",
+                "QQQ"
+            ],
+            "frequency": 3600
+        },
+        {
+            "name": "High of 10 Days IBS (S5)",
+            "active_window": "09:30-16:00",
+            "script": "strategies/active_testing/strategy_5_high_ibs.py",
+            "assets": [
+                "SPY",
+                "QQQ"
+            ],
+            "frequency": 3600
+        },
+        {
+            "name": "Nova (Optimized)",
+            "active_window": "09:30-16:00",
+            "script": "strategies/active_testing/volatility_squeeze_breakout.py",
+            "assets": [
+                "MSTR",
+                "AAPL",
+                "AMZN",
+                "TSM",
+                "NVDA",
+                "QCOM",
+                "PLTR"
+            ],
+            "frequency": 3600
+        },
+        {
+            "name": "Awesome Oscillator (AO)",
+            "active_window": "09:30-16:00",
+            "script": "strategies/active_testing/awesome_oscillator.py",
+            "assets": [
+                "AAPL",
+                "MSFT",
+                "GOOGL",
+                "AMZN",
+                "META",
+                "TSLA",
+                "NVDA"
+            ],
+            "frequency": 3600
+        },
+        {
+            "name": "MACD Oscillator (MACD)",
+            "active_window": "09:30-16:00",
+            "script": "strategies/active_testing/macd_oscillator.py",
+            "assets": [
+                "AAPL",
+                "MSFT",
+                "GOOGL",
+                "AMZN",
+                "META",
+                "TSLA",
+                "NVDA",
+                "CAT",
+                "GS",
+                "SPY"
+            ],
+            "frequency": 3600
+        },
+        {
+            "name": "Bollinger Bands (BB)",
+            "active_window": "09:30-16:00",
+            "script": "strategies/active_testing/bollinger_bands.py",
+            "assets": [
+                "AAPL",
+                "MSFT",
+                "GOOGL",
+                "AMZN",
+                "META",
+                "TSLA",
+                "NVDA"
+            ],
+            "frequency": 3600
+        },
+        {
+            "name": "Shooting Star (SS)",
+            "active_window": "09:30-16:00",
+            "script": "strategies/active_testing/shooting_star.py",
+            "assets": [
+                "NVDA",
+                "AVGO",
+                "TSLA",
+                "CAT",
+                "GS",
+                "META",
+                "WMT",
+                "JPM",
+                "GOOGL"
+            ],
+            "frequency": 3600
+        },
+        {
+            "name": "Dual Thrust (DT)",
+            "active_window": "09:30-16:00",
+            "script": "strategies/active_testing/dual_thrust.py",
+            "assets": [
+                "SOL-USD",
+                "ADA-USD",
+                "SMCI",
+                "XRP-USD",
+                "NEAR-USD",
+                "PLTR",
+                "MU",
+                "DOGE-USD",
+                "COIN",
+                "NET",
+                "NVDA",
+                "AVAX-USD",
+                "DOT-USD",
+                "BNB-USD",
+                "ALGO-USD",
+                "PATH",
+                "ARM",
+                "CAT",
+                "AVGO",
+                "MSTR",
+                "SLV",
+                "KLAC",
+                "TSM",
+                "SHOP",
+                "ARKW"
+            ],
+            "frequency": 3600
+        },
+        {
+            "name": "Heikin Ashi (HA)",
+            "active_window": "09:30-16:00",
+            "script": "strategies/active_testing/heikin_ashi.py",
+            "assets": [
+                "SMCI",
+                "LRCX",
+                "DOGE-USD",
+                "MSTR",
+                "PLTR",
+                "NVDA",
+                "TSM",
+                "ARM",
+                "COIN",
+                "LINK-USD",
+                "KLAC",
+                "DDOG",
+                "LTC-USD",
+                "TQQQ",
+                "MU",
+                "SHOP",
+                "AVGO",
+                "SNOW",
+                "NET",
+                "SHIB-USD",
+                "CRWD",
+                "MDB",
+                "SMH",
+                "ASML",
+                "META"
+            ],
+            "frequency": 3600
+        },
+        {
+            "name": "Strategy OS",
+            "active_window": "09:30-16:00",
+            "script": "strategies/active_testing/strategy_os.py",
+            "assets": [
+                "SMCI",
+                "MU",
+                "COIN",
+                "ARM",
+                "PLTR",
+                "TSLA",
+                "AVGO",
+                "NVDA",
+                "NET",
+                "INTC",
+                "CAT",
+                "SHOP",
+                "MSTR",
+                "TQQQ",
+                "ARKW",
+                "IBM",
+                "CRWD",
+                "SMH",
+                "LRCX",
+                "GOOGL",
+                "AMAT",
+                "JPM",
+                "IGV",
+                "ROKU",
+                "KLAC"
+            ],
+            "frequency": 3600
+        }
+    ]
+}

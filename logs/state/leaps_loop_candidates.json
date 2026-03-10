@@ -1,0 +1,26 @@
+{
+  "csp": [
+    {
+      "ticker": "AAPL",
+      "price": 264.3500061035156,
+      "pullback": "5.8%",
+      "strategy": "30D CSP (Target 5% Return)"
+    }
+  ],
+  "leaps": [
+    {
+      "ticker": "MSFT",
+      "price": 399.6000061035156,
+      "off_highs": "27.8%",
+      "rsi": "21.9",
+      "strategy": "JAN LEAPS (300-365 DTE)"
+    },
+    {
+      "ticker": "NFLX",
+      "price": 77.98999786376953,
+      "off_highs": "41.8%",
+      "rsi": "10.6",
+      "strategy": "JAN LEAPS (300-365 DTE)"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+    "timestamp": "2026-03-09T16:06:03.546508-04:00",
+    "vix": {
+        "value": 25.59,
+        "risk_level": "CAUTION"
+    },
+    "sectors": {
+        "rotation": "RISK_ON",
+        "xlk_1d": 1.81,
+        "xlp_1d": 0.23
+    },
+    "macro": {
+        "dxy": 98.85,
+        "tnx": 4.14
+    },
+    "caution_mode": false
+}

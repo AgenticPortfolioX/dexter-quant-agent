@@ -1,0 +1,13 @@
+{
+    "assets": [
+        "QQQ",
+        "IWM",
+        "XLK",
+        "XLF",
+        "XBI",
+        "AMZN"
+    ],
+    "period": "3y",
+    "interval_intraday": "5m",
+    "interval_daily": "1d"
+}

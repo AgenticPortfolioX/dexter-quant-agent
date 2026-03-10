@@ -1,0 +1,16 @@
+{
+    "name": "string (Required)",
+    "type": "json | python (Required)",
+    "universe": [
+        "string"
+    ],
+    "rules": {
+        "entry": "string",
+        "exit": "string"
+    },
+    "risk_limits": {
+        "max_position_size": "number",
+        "stop_loss": "number"
+    },
+    "signal_function": "generate_signals(data) -> signals (Required for Python)"
+}
