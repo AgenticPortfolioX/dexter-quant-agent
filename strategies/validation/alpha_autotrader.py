@@ -20,6 +20,9 @@ import re
 import threading
 import pickle
 
+# Slack Integration
+from scripts.slack_notifier import send_dexter_slack_alert
+
 # Standard library imports for Winsound if on Windows
 try:
     import winsound
@@ -102,7 +105,7 @@ except Exception:
 # Setup Paths & Config
 EST = pytz.timezone('US/Eastern')
 MAX_CONCURRENT_TRADES = 4
-POSITION_SIZE_USD = 25.0
+POSITION_SIZE_USD = 75.0
 MIN_NOTIONAL_USD = 2.0 # Proposal 22: Reject orders < $2.0 to clear RH $1 minimum
 
 DEXTER_ROOT = r"C:\Users\jmgra\antigravityagents\dexter-quant-agent"
@@ -120,6 +123,7 @@ SIGNAL_QUALITY_FILE = os.path.join(DEXTER_ROOT, 'signal_quality.json')
 SIGNAL_CACHE_FILE   = os.path.join(DEXTER_ROOT, 'cache', 'signal_cache.pkl')
 LAST_TRADE_FILE    = os.path.join(DEXTER_ROOT, 'cache', 'last_trade_times.pkl')
 UNSETTLED_POSITIONS_FILE = os.path.join(DEXTER_ROOT, 'cache', 'unsettled_positions.json')
+ACTIVE_STRATEGIES_FILE = os.path.join(DEXTER_ROOT, 'cache', 'active_strategies.json')
 
 # Global Session Cache
 SIGNAL_CACHE = {} 
@@ -144,6 +148,7 @@ CACHE_LOCK = threading.Lock() # Final safeguard for parallel data fetching
 import queue as _queue_mod
 BOARD_QUEUE: _queue_mod.Queue = _queue_mod.Queue()
 _BOARD_THREAD_STARTED = False
+GLOBAL_ACTIVE_POSITIONS = {}
 
 # Inverse Mapping for Shorting on Robinhood (Bearish Proxies for Cash Accounts)
 INVERSE_MAP = {
@@ -159,6 +164,14 @@ INVERSE_MAP = {
     "MSFT": "MSFY",  # Inverse Microsoft
     "GOOGL": "SQQQ", # Use Nasdaq Inverse proxy if direct missing
     "META": "METP",  # Inverse Meta
+    "SNOW": "SQQQ",  # Nasdaq 100 Proxy (High beta tech)
+    "CAT": "SARK",   # Inverse Innovation/Growth (Proxy for high beta mid-caps)
+    "COIN": "BITI",  # Inverse Bitcoin Strategy ETF (Bullish crypto-stock counterpart)
+    "SMCI": "SOXS",  # 3x Inverse Semiconductors
+    "MU": "SOXS",    # 3x Inverse Semiconductors
+    "KLAC": "SOXS",  # 3x Inverse Semiconductors
+    "TSM": "SOXS",   # 3x Inverse Semiconductors
+    "ARM": "SOXS",   # 3x Inverse Semiconductors
 }
 
 def is_in_window(window_str):
@@ -200,30 +213,78 @@ def log_engine(message, level="info"):
     if should_flush:
         flush_log_buffer()
 
-def load_telegram_config():
-    config = {}
-    if os.path.exists(TELEGRAM_ENV_PATH):
-        try:
-            with open(TELEGRAM_ENV_PATH, 'r') as f:
-                for line in f:
-                    if '=' in line and not line.startswith('#'):
-                        key, value = line.strip().split('=', 1)
-                        config[key] = value
-        except Exception as e:
-            print(f"Error reading .env: {e}")
-    return config
+def send_quant_alert(message):
+    """Sends an alert to the designated Slack Quant channel."""
+    return send_dexter_slack_alert(message)
 
-def send_telegram_alert(message):
-    config = load_telegram_config()
-    token = config.get("TELEGRAM_BOT_TOKEN")
-    chat_id = config.get("TELEGRAM_CHAT_ID", "816017365")
-    if not token: return False
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}
+def close_short_term_positions(timeframes=['1m', '5m', '10m']):
+    """Fetches all open positions and closes those that meet the 'short-term' criteria."""
+    log_engine("🌅 Starting EOD Close of Short-Term Positions...")
     try:
-        requests.post(url, json=payload, timeout=5)
-        return True
-    except: return False
+        # 1. Fetch current positions from bridge
+        resp = requests.get("http://localhost:5005/positions", timeout=15)
+        if resp.status_code != 200:
+            log_engine(f"Error fetching positions: {resp.text}", level="error")
+            return
+        
+        data = resp.json()
+        stocks = data.get("stocks", {})
+        
+        # 2. Filter and Close
+        registry = {}
+        if os.path.exists(REGISTRY_PATH):
+            with open(REGISTRY_PATH, 'r') as f:
+                registry = json.load(f)
+        
+        short_term_strats = []
+        # Find strategies that are 1m, 5m, 10m based on registry frequency
+        for cat in ['live_trading', 'active_testing']:
+            for s in registry.get(cat, []):
+                freq = s.get('frequency', 60)
+                if freq <= 600: # 10 minutes or less
+                    short_term_strats.append(s['name'])
+        
+        # Also include Volcanix explicitly as per user request
+        short_term_strats.append("Volcanix (VWAP Reclaim)")
+
+        closed_count = 0
+        for ticker, pos in stocks.items():
+            qty = float(pos.get('quantity', 0))
+            if qty <= 0: continue
+            
+            # We exit if the ticker is associated with a short-term strategy
+            # or if it was bought today (checking unsettled_positions for a hint)
+            should_close = False
+            for cat in ['live_trading', 'active_testing']:
+                for s in registry.get(cat, []):
+                    if s['name'] in short_term_strats and ticker in s.get('assets', []):
+                        should_close = True
+                        break
+                if should_close: break
+                
+            if should_close:
+                log_engine(f"Closing EOD Position: {ticker} ({qty} units)")
+                # Fetch recent price for logging
+                hist = yf.Ticker(ticker).history(period="1d")
+                price = hist['Close'].iloc[-1] if not hist.empty else 0
+                execute_trade("EOD Stop", ticker, "SELL", price)
+                closed_count += 1
+                
+        log_engine(f"EOD Cleanup Complete. Closed {closed_count} positions.")
+        send_quant_alert(f"🌅 *EOD CLEANUP*\nClosed {closed_count} short-term positions.")
+        
+    except Exception as e:
+        log_engine(f"EOD Close Error: {e}", level="error")
+
+def generate_daily_pnl_report():
+    """Aggregates all trades for today and sends an enhanced Slack Post-Mortem."""
+    log_engine("📊 Triggering Enhanced Post-Mortem Report...")
+    try:
+        python_exe = os.path.join(DEXTER_ROOT, "quant-env", "Scripts", "python.exe")
+        report_script = os.path.join(DEXTER_ROOT, "scripts", "post_mortem_report.py")
+        subprocess.run([python_exe, report_script], check=False)
+    except Exception as e:
+        log_engine(f"Report Trigger Error: {e}", level="error")
 
 def find_entry_price(ticker):
     path = os.path.join(LOG_DIR_LIVE, "execution.log")
@@ -232,7 +293,7 @@ def find_entry_price(ticker):
         with open(path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
             for line in reversed(lines):
-                if ticker in line and "EXEC-BUY" in line:
+                if ticker in line and ("EXEC-BUY" in line or "EXEC-SHORT" in line):
                     parts = line.split('|')
                     if len(parts) >= 3:
                         price_str = parts[2].split('$')[-1].strip()
@@ -297,23 +358,32 @@ def update_live_tracking_board(strategy_name, ticker, side):
         log_engine(f"Board Update Failed: {e}", level="error")
 
 def update_portfolio_display(active_positions):
-    """Updates the 'ACTIVE PORTFOLIO' section in the Strategy Board."""
+    """Updates the 'ACTIVE PORTFOLIO' section in the Strategy Board with Strategy Names."""
     try:
         target_path = STRATEGY_BOARD_PATH
         if not os.path.exists(target_path): return
         
+        # Load Strategy Mapping Cache
+        strat_map = {}
+        if os.path.exists(ACTIVE_STRATEGIES_FILE):
+            try:
+                with open(ACTIVE_STRATEGIES_FILE, 'r') as f:
+                    strat_map = json.load(f)
+            except: pass
+
         with open(target_path, "r", encoding='utf-8') as f:
             content = f.read()
 
-        # Generate portfolio table - Show all positions
+        # Generate portfolio table - Show all positions with Strategy
         pos_list = list(active_positions.items())
-        portfolio_table = "## 📈 ACTIVE PORTFOLIO\n| Asset | Quantity | Status |\n| :--- | :--- | :--- |\n"
+        portfolio_table = "## 📈 ACTIVE PORTFOLIO\n| Asset | Strategy | Quantity | Status |\n| :--- | :--- | :--- | :--- |\n"
         
         if not pos_list:
-            portfolio_table += "| None | 0.0 | CASH |\n"
+            portfolio_table += "| None | N/A | 0.0 | CASH |\n"
         else:
             for ticker, qty in pos_list:
-                portfolio_table += f"| **{ticker}** | {qty} | HOLDING |\n"
+                strat_name = strat_map.get(ticker, "Unknown")
+                portfolio_table += f"| **{ticker}** | {strat_name} | {qty} | HOLDING |\n"
         
         # Use a more constrained regex to avoid devouring the whole file
         if "## 📈 ACTIVE PORTFOLIO" in content:
@@ -327,7 +397,6 @@ def update_portfolio_display(active_positions):
         
         with open(target_path, "w", encoding='utf-8') as f:
             f.write(content)
-        # log_engine("Portfolio Display Updated.")
     except Exception as e:
         log_engine(f"Portfolio Display Update Failed: {e}", level="error")
 
@@ -527,7 +596,26 @@ def save_unsettled_tracker():
             json.dump(UNSETTLED_POSITIONS, f)
     except: pass
 
-def execute_trade(strategy_name, ticker, side, price, timeframe=None, mode="LIVE_MARKET", target_symbol=None):
+def update_active_strategy_cache(ticker, strategy_name, action):
+    """Saves or removes strategy mapping for active positions."""
+    try:
+        os.makedirs(os.path.dirname(ACTIVE_STRATEGIES_FILE), exist_ok=True)
+        data = {}
+        if os.path.exists(ACTIVE_STRATEGIES_FILE):
+            with open(ACTIVE_STRATEGIES_FILE, 'r') as f:
+                data = json.load(f)
+        
+        if action == "buy":
+            data[ticker] = strategy_name
+        elif action == "sell":
+            data.pop(ticker, None)
+            
+        with open(ACTIVE_STRATEGIES_FILE, 'w') as f:
+            json.dump(data, f)
+    except Exception as e:
+        log_engine(f"Failed to update strategy cache: {e}", level="error")
+
+def execute_trade(strategy_name, ticker, side, price, timeframe=None, mode="LIVE_MARKET", target_symbol=None, quantity_override=None):
     """Triggers an actual order on the Bridge (5005 for RH, 5006 for IBKR) with Settlement Guard."""
     load_unsettled_tracker()
     target_ticker = target_symbol if target_symbol else ticker
@@ -548,12 +636,15 @@ def execute_trade(strategy_name, ticker, side, price, timeframe=None, mode="LIVE
                  log_engine(f"🛡️ EXECUTION GUARD: {strategy_name} signaled SHORT for {ticker}, but no Inverse Mapping found and Cash Account cannot short. Aborting.", level="warning")
                  return
     
-    # Position sizing: $25 cap per trade
-    quantity = round(POSITION_SIZE_USD / price, 4) if price > 0 else 0
+    # Position sizing: Use override if provided, otherwise $25/$75 cap per trade
+    if quantity_override is not None:
+        quantity = quantity_override
+    else:
+        quantity = round(POSITION_SIZE_USD / price, 4) if price > 0 else 0
+        if CAUTION_MODE:
+            quantity = round(quantity * 0.5, 4)
+            log_engine(f"Execution Sizing (CAUTION MODE): {quantity} units")
     
-    if CAUTION_MODE:
-        quantity = round(quantity * 0.5, 4)
-        log_engine(f"Execution Sizing (CAUTION MODE): {quantity} units")
     if quantity <= 0: return
 
     action = "buy"
@@ -562,14 +653,14 @@ def execute_trade(strategy_name, ticker, side, price, timeframe=None, mode="LIVE
     if is_exit:
         action = "sell"
         # --- 🛡️ SETTLEMENT GUARD: EXIT PROTECTION ---
-        # Prevent "Good Faith Violation" by blocking same-day sell of unsettled buys
+        # The user trades exclusively with settled cash, meaning a same-day exit of a position
+        # bought earlier today is completely safe under Regulation T and does NOT cause a GFV.
+        # We track exits here but we no longer block them.
         today_str = datetime.now(EST).strftime("%Y-%m-%d")
         if target_ticker in UNSETTLED_POSITIONS:
             buy_date = UNSETTLED_POSITIONS[target_ticker]
             if buy_date == today_str:
-                log_engine(f"🛡️ SETTLEMENT GUARD: Blocked EXIT for {target_ticker}. Asset bought today ({buy_date}). Selling now would cause a Good Faith Violation.", level="warning")
-                send_telegram_alert(f"🛡️ *SETTLEMENT GUARD*\nBlocked EXIT: {target_ticker}\nReason: Same-day settlement risk (GFV).")
-                return
+                log_engine(f"🛡️ SETTLEMENT GUARD: Permitted same-day EXIT for {target_ticker}. Asset bought earlier today ({buy_date}) with settled cash.", level="info")
 
     elif side.upper() == "SHORT" and port == 5006:
         action = "sell" 
@@ -617,7 +708,7 @@ def execute_trade(strategy_name, ticker, side, price, timeframe=None, mode="LIVE
                 reason = reject_reason if reject_reason else "Immediately Rejected by Robinhood"
                 msg = f"Order REJECTED: {ticker} -> {reason}"
                 log_engine(msg, level="error")
-                send_telegram_alert(f"⚠️ *ORDER REJECTED*\nAsset: {ticker}\nReason: {reason}")
+                send_quant_alert(f"⚠️ *ORDER REJECTED*\nAsset: {ticker}\nReason: {reason}")
                 return
 
             # Verification: Check if a position actually exists
@@ -631,11 +722,13 @@ def execute_trade(strategy_name, ticker, side, price, timeframe=None, mode="LIVE
                 if action == "buy":
                     UNSETTLED_POSITIONS[target_ticker] = datetime.now(EST).strftime("%Y-%m-%d")
                     save_unsettled_tracker()
+                    update_active_strategy_cache(target_ticker, strategy_name, "buy")
 
                 # Remove from Unsettled Tracker on Success Sell
                 if action == "sell":
                     UNSETTLED_POSITIONS.pop(target_ticker, None)
                     save_unsettled_tracker()
+                    update_active_strategy_cache(target_ticker, strategy_name, "sell")
 
                 # --- TELEGRAM ALERT ---
                 market_label = " [IBKR OVERNIGHT]" if port == 5006 else " [ROBINHOOD CASH]"
@@ -644,7 +737,7 @@ def execute_trade(strategy_name, ticker, side, price, timeframe=None, mode="LIVE
                 
                 msg = f"{type_label}\nAsset: {ticker} (Target: {target_ticker})\nStrategy: {strategy_name}\nPrice: ${price:.2f}"
                 if timeframe: msg += f"\nTimeframe: {timeframe}"
-                send_telegram_alert(msg)
+                send_quant_alert(msg)
             else:
                 log_engine(f"Phantom Fill Protection (Audit Failed): {ticker} order accepted but position NOT found in audit.", level="warning")
         else:
@@ -680,16 +773,16 @@ def process_signal_and_execute(name, ticker, sig, price, is_live, can_execute, a
             if signal_time.date() != now.date():
                 return None, active_count
                 
-            # Dynamic Stale Window: Default 30m, but 1.1x timeframe for longer ones
+            # Dynamic Stale Window: Default 30m, but 2.5x timeframe for longer ones
             stale_threshold = 1800 # 30 mins default
             if timeframe:
                 if 'h' in timeframe.lower():
-                    stale_threshold = 3600 * 1.5 # 1.5 hours for hourly signals
+                    stale_threshold = 3600 * 2.5 # 2.5 hours for hourly signals
                 elif 'd' in timeframe.lower():
-                    stale_threshold = 86400 * 1.1 # ~26 hours for daily
+                    stale_threshold = 86400 * 1.5 # ~36 hours for daily
                 elif 'm' in timeframe.lower():
                     tf_mins = int(re.search(r'\d+', timeframe).group())
-                    stale_threshold = (tf_mins * 60) * 1.5 # 1.5x TF
+                    stale_threshold = (tf_mins * 60) * 2.5 # 2.5x TF
 
             if (now - signal_time).total_seconds() > stale_threshold and is_live:
                 return f"{ticker}-STALE", active_count
@@ -973,7 +1066,15 @@ def compute_strategy_signal(task: dict) -> dict:
                             'price': last['entry'], 'tf': '5m', 'sig_time': last['time']}
 
         elif strat_type == 'po3':
-            from strategies.active_testing.po3_ifvg_strategy import PO3IFVGStrategy
+            try:
+                from strategies.active_testing.po3_ifvg_strategy import PO3IFVGStrategy
+            except:
+                import sys, importlib.util
+                spec = importlib.util.spec_from_file_location("PO3IFVGStrategy", "C:/Users/jmgra/antigravityagents/dexter-quant-agent/strategies/short-term/po3_ifvg_strategy.py")
+                po3_mod = importlib.util.module_from_spec(spec)
+                sys.modules["po3_ifvg_strategy"] = po3_mod
+                spec.loader.exec_module(po3_mod)
+                PO3IFVGStrategy = po3_mod.PO3IFVGStrategy
             strat = PO3IFVGStrategy()
             strat.ticker = ticker
             if df is not None:
@@ -1080,7 +1181,7 @@ def compute_strategy_signal(task: dict) -> dict:
                 signals = calculate_ao_signals(df)
                 if not signals.empty:
                     last_sig = signals['awesome signals'].iloc[-1]
-                    sig_label = "BUY" if last_sig == 1 else ("SELL" if last_sig == -1 else None)
+                    sig_label = "BUY" if last_sig == 1 else ("SHORT" if last_sig == -1 else None)
                     return {**result_base, 'sig': sig_label, 'price': signals['Close'].iloc[-1], 'tf': '1h', 'sig_time': signals.index[-1]}
 
         elif strat_type == 'bollinger_bands':
@@ -1089,7 +1190,7 @@ def compute_strategy_signal(task: dict) -> dict:
                 signals = generate_bb_signals(df)
                 if not signals.empty:
                     last_sig = signals['signals'].iloc[-1]
-                    sig_label = "BUY" if last_sig == 1 else ("SELL" if last_sig == -1 else None)
+                    sig_label = "BUY" if last_sig == 1 else ("SHORT" if last_sig == -1 else None)
                     return {**result_base, 'sig': sig_label, 'price': signals['Close'].iloc[-1], 'tf': '1h', 'sig_time': signals.index[-1]}
 
         elif strat_type == 'shooting_star':
@@ -1098,7 +1199,7 @@ def compute_strategy_signal(task: dict) -> dict:
                 signals = generate_ss_signals(df)
                 if not signals.empty:
                     last_sig = signals['signals'].iloc[-1]
-                    sig_label = "BUY" if last_sig == 1 else ("SELL" if last_sig == -1 else None)
+                    sig_label = "BUY" if last_sig == 1 else ("SHORT" if last_sig == -1 else None)
                     return {**result_base, 'sig': sig_label, 'price': signals['Close'].iloc[-1], 'tf': '1h', 'sig_time': signals.index[-1]}
 
         elif strat_type == 'dual_thrust':
@@ -1107,7 +1208,7 @@ def compute_strategy_signal(task: dict) -> dict:
                 signals = dual_thrust_calculation(df)
                 if not signals.empty:
                     last_sig = signals['signals'].iloc[-1]
-                    sig_label = "BUY" if last_sig == 1 else ("SELL" if last_sig == -1 else None)
+                    sig_label = "BUY" if last_sig == 1 else ("SHORT" if last_sig == -1 else None)
                     return {**result_base, 'sig': sig_label, 'price': signals['Close'].iloc[-1], 'tf': '1h', 'sig_time': signals.index[-1]}
 
         elif strat_type == 'heikin_ashi':
@@ -1116,6 +1217,8 @@ def compute_strategy_signal(task: dict) -> dict:
                 signals = generate_ha_signals(df)
                 if not signals.empty:
                     last_sig = signals['signals'].iloc[-1]
+                    sig_label = "BUY" if last_sig == 1 else ("SHORT" if last_sig == -1 else None)
+                    return {**result_base, 'sig': sig_label, 'price': signals['Close'].iloc[-1], 'tf': '1h', 'sig_time': signals.index[-1]}
                     sig_label = "BUY" if last_sig >= 1 else ("SELL" if last_sig <= -1 else None)
                     return {**result_base, 'sig': sig_label, 'price': signals['Close'].iloc[-1], 'tf': '1h', 'sig_time': signals.index[-1]}
 
@@ -1339,10 +1442,13 @@ def run_alpha_autotrader(mode="LIVE_MARKET"):
     # --- Portfolio State (Dismantled Blockage) ---
     import threading
     def background_sync():
+        global GLOBAL_ACTIVE_POSITIONS
         try:
-            active_positions = get_active_positions(mode=mode)
-            log_engine(f"Portfolio Sync: {len(active_positions)}/{MAX_CONCURRENT_TRADES} open.")
-            update_portfolio_display(active_positions)
+            positions = get_active_positions(mode=mode)
+            GLOBAL_ACTIVE_POSITIONS.clear()
+            GLOBAL_ACTIVE_POSITIONS.update(positions)
+            log_engine(f"Portfolio Sync: {len(positions)}/{MAX_CONCURRENT_TRADES} open.")
+            update_portfolio_display(positions)
         except Exception as e:
             log_engine(f"Background Sync Error: {e}", level="warning")
 
@@ -1350,8 +1456,8 @@ def run_alpha_autotrader(mode="LIVE_MARKET"):
     threading.Thread(target=background_sync, daemon=True).start()
     
     # Use cached positions for the immediate scan threshold
-    active_positions = {} # Initialized local state for the scan window
-    active_count = 0 # Default to 0 to ensure scans proceed if sync is slow
+    active_positions = GLOBAL_ACTIVE_POSITIONS.copy()
+    active_count = len(active_positions)
 
     # --- ⚡ PARALLEL EXECUTION ENGINE (Proposal 5) ---
     import concurrent.futures as _cf
@@ -1393,7 +1499,8 @@ def run_alpha_autotrader(mode="LIVE_MARKET"):
                     if df is not None:
                         # Proposal 16: Dynamic Stale Tolerance (60m for scalps, 480m for hourly/swing)
                         stale_limit = 3600 # 60 mins default
-                        if interval in ["1h", "1d"]: stale_limit = 28800 # 8 hours
+                        if interval == "1h": stale_limit = 28800 # 8 hours
+                        elif interval == "1d": stale_limit = 129600 # 36 hours
                         elif interval == "15m": stale_limit = 7200 # 2 hours
                         
                         last_ts = df.index[-1].timestamp()
@@ -1436,6 +1543,7 @@ def run_alpha_autotrader(mode="LIVE_MARKET"):
 
     # Step 3: Aggregate signals per strategy name (track latest per strategy)
     latest_signals: dict = {}
+    signal_audit = {"total": 0, "stale": 0}
 
     for result in results:
         name     = result['name']
@@ -1450,6 +1558,8 @@ def run_alpha_autotrader(mode="LIVE_MARKET"):
         if error:
             log_engine(f"Strategy error [{name}-{ticker}]: {error}", level="error")
 
+        # SIGNAL AUDIT TRACKING
+        is_stale = False
         if sig:
             update, active_count = process_signal_and_execute(
                 name, ticker, sig, price, is_live, can_execute,
@@ -1458,9 +1568,19 @@ def run_alpha_autotrader(mode="LIVE_MARKET"):
             )
             if update:
                 latest_signals[name] = update
+                signal_audit["total"] += 1
+                if "-STALE" in str(update):
+                    signal_audit["stale"] += 1
 
         if name not in latest_signals:
             latest_signals[name] = "None"
+    
+    # ALERT ON MASS STALE (Proposal 22: Signal Audit)
+    if signal_audit["total"] > 10:
+        stale_rate = signal_audit["stale"] / signal_audit["total"]
+        if stale_rate >= 0.9:
+            log_engine(f"🚨 CRITICAL SIGNAL AUDIT: {stale_rate*100:.0f}% of signals REJECTED AS STALE. Check system time or yfinance connectivity.", level="error")
+            update_board_status("🚨 DATA STALE: 90%+ REJECTION", persistent=True)
 
     # Step 4: Update board for every registered strategy
     for category in ['live_trading', 'active_testing']:
