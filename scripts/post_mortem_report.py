@@ -73,7 +73,7 @@ def generate_post_mortem():
     try:
         now = datetime.now(EST)
         today_str = now.strftime("%Y-%m-%d")
-        exec_log = os.path.join(DEXTER_ROOT, ".agent", "reporting-repo", "dexter-quant", "logs", "live_trading", "execution.log")
+        exec_log = r"C:\Users\jmgra\antigravityagents\.agent\reporting-repo\dexter-quant\logs\live_trading\execution.log"
         
         if not os.path.exists(exec_log):
             return "❌ No execution log found for today."
