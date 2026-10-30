@@ -59,8 +59,11 @@ class LittleDStrategy:
         levels = self.find_clean_swing_points(df)
         if not levels: return None
         
-        # --- Inverse Mapping Config ---
-        INVERSE_MAP = {"IBIT": "BITI", "ETHE": "SETH"}
+        # --- 2x Leveraged & Inverse Mapping Config ---
+        # 2x Long: BITU (ProShares Ultra Bitcoin ETF)
+        # 2x Short: SBIT (ProShares UltraShort Bitcoin ETF)
+        LONG_MAP = {"IBIT": "BITU", "BITU": "BITU", "BTC-USD": "BITU", "BTC": "BITU"}
+        SHORT_MAP = {"IBIT": "SBIT", "BITU": "SBIT", "BTC-USD": "SBIT", "BTC": "SBIT", "ETHE": "SETH"}
         
         # Check the most recent candle for SFP
         curr = df.iloc[-1]
@@ -76,17 +79,17 @@ class LittleDStrategy:
             # Only consider levels from reasonably far back (not the current candle)
             if level['timestamp'] >= df.index[-2]: continue 
             
-            # Short SFP: Sweep High, Close below
+            # Short SFP: Sweep High, Close below -> Trade 2x Short (SBIT)
             if curr['High'] > lvl_price and curr['Close'] < lvl_price:
                 if curr['Volume'] > (vol_ma * vol_threshold):
                     if upper_wick >= (max(body, 0.0001) * 2):
                         
                         final_symbol = self.symbol
                         final_direction = 'SELL'
-                        if self.symbol in INVERSE_MAP:
-                            final_symbol = INVERSE_MAP[self.symbol]
+                        if self.symbol in SHORT_MAP:
+                            final_symbol = SHORT_MAP[self.symbol]
                             final_direction = 'BUY'
-                            print(f"  [LittleD] Bearish SFP on {self.symbol} -> Mapping to LONG on {final_symbol}")
+                            print(f"  [LittleD] Bearish SFP on {self.symbol} -> Trading 2x SHORT via {final_symbol}")
 
                         return {
                             'strategy': 'LittleD',
@@ -98,13 +101,17 @@ class LittleDStrategy:
                             'timestamp': str(df.index[-1])
                         }
             
-            # Long SFP: Sweep Low, Close above
+            # Long SFP: Sweep Low, Close above -> Trade 2x Long (BITU)
             if curr['Low'] < lvl_price and curr['Close'] > lvl_price:
                 if curr['Volume'] > (vol_ma * vol_threshold):
                     if lower_wick >= (max(body, 0.0001) * 2):
+                        final_symbol = self.symbol
+                        if self.symbol in LONG_MAP:
+                            final_symbol = LONG_MAP[self.symbol]
+                            print(f"  [LittleD] Bullish SFP on {self.symbol} -> Trading 2x LONG on {final_symbol}")
                         return {
                             'strategy': 'LittleD',
-                            'symbol': self.symbol,
+                            'symbol': final_symbol,
                             'direction': 'BUY',
                             'entry': curr['Close'],
                             'sl': curr['Low'] - (curr['Low'] * 0.001),
@@ -115,7 +122,7 @@ class LittleDStrategy:
 
 if __name__ == "__main__":
     import json
-    for symbol in ["IBIT", "ETHE", "CLNK"]:
+    for symbol in ["BITU", "IBIT", "ETHE", "CLNK"]:
         strat = LittleDStrategy(symbol)
         signal = strat.scan()
         if signal:

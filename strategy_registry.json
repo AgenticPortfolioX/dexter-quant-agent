@@ -1,76 +1,6 @@
 {
     "live_trading": [
         {
-            "name": "London Displacement",
-            "active_window": "02:00-05:00",
-            "script": "strategies/live_trading/london_displacement/london_displacement.py",
-            "assets": [
-                "USDJPY=X"
-            ],
-            "frequency": 60
-        },
-        {
-            "name": "Initial Balance (80%)",
-            "active_window": "09:30-10:30",
-            "script": "strategies/live_trading/initial_balance_80/initial_balance_80.py",
-            "assets": [
-                "SPY"
-            ],
-            "frequency": 60
-        },
-        {
-            "name": "Noon-Curve (Lunchbox)",
-            "active_window": "10:30-14:00",
-            "script": "strategies/live_trading/noon_curve_lunchbox/noon_curve_lunchbox.py",
-            "assets": [
-                "QQQ",
-                "SPY"
-            ],
-            "frequency": 60
-        },
-        {
-            "name": "MACD 200 Bounce (Refined)",
-            "active_window": "09:30-16:00",
-            "script": "strategies/live_trading/macd_200_bounce/macd_refined_v2.py",
-            "assets": [
-                "SPY",
-                "QQQ"
-            ],
-            "frequency": 60
-        },
-        {
-            "name": "SMC Focal Portfolio",
-            "active_window": "09:30-16:00",
-            "script": "strategies/live_trading/smc_focal_portfolio/smc_focal_portfolio.py",
-            "assets": [
-                "AAPL",
-                "DIA",
-                "JNJ",
-                "WMT",
-                "GS"
-            ],
-            "frequency": 60
-        },
-        {
-            "name": "Trinity Basket",
-            "active_window": "09:30-16:00",
-            "script": "trinity_test_scanner.py",
-            "assets": [
-                "GLD",
-                "FXY",
-                "FXE"
-            ],
-            "frequency": 60
-        },
-        {
-            "name": "Nasdaq-Day",
-            "active_window": "09:30-16:00",
-            "script": "strategies/validation/nasdaq_day_strategy.py",
-            "assets": [
-                "QQQ"
-            ]
-        },
-        {
             "name": "Apex (Pivot Bounce)",
             "active_window": "09:30-16:00",
             "script": "strategies/Ai-strats/pivot_rsi_divergence.py",
@@ -82,179 +12,42 @@
                 "MSTR",
                 "AMZN",
                 "NVDA",
-                "META"
-            ],
-            "frequency": 3600
-        },
-        {
-            "name": "Gemini Velocity",
-            "active_window": "09:35-15:45",
-            "script": "strategies/live_trading/gemini_velocity/gemini_velocity_momentum.py",
-            "assets": [
-                "HOOD",
-                "COIN",
-                "TSM",
-                "ROKU"
-            ],
-            "frequency": 300
-        },
-        {
-            "name": "Double Break V3 (Elite Scanner)",
-            "active_window": "09:35-15:45",
-            "script": "strategies/live_trading/double_break_v3_elite/double_break_v3_elite.py",
-            "assets": [
-                "PYPL",
-                "TSM",
-                "MSFT",
-                "SMCI",
-                "ROKU",
-                "INTC",
-                "WMT",
-                "PG",
-                "AMZN",
-                "META"
-            ],
-            "frequency": 120
-        },
-        {
-            "name": "Matt-Rapid (Trend Flow)",
-            "active_window": "09:35-15:45",
-            "script": "strategies/live_trading/matt_rapid_trend/matt_rapid_trend.py",
-            "assets": [
-                "MSFT",
-                "SMCI",
-                "ROKU",
-                "NVDA",
-                "MSTR",
-                "PLTR",
-                "AAPL",
-                "TSLA",
-                "AMD",
-                "COIN"
-            ],
-            "frequency": 120
-        },
-        {
-            "name": "BigD (PO3/AMD)",
-            "active_window": "00:00-23:59",
-            "script": "strategies/live_trading/big_d/big_d.py",
-            "assets": [
-                "IBIT",
-                "ETHE",
-                "CLNK"
-            ],
-            "frequency": 300
-        },
-        {
-            "name": "LittleD (SFP)",
-            "active_window": "00:00-23:59",
-            "script": "strategies/live_trading/little_d/little_d.py",
-            "assets": [
-                "IBIT",
-                "ETHE",
-                "CLNK"
-            ],
-            "frequency": 3600
-        },
-        {
-            "name": "Sonnet (ORE + Regime)",
-            "label": "S1",
-            "series": "S-Series",
-            "active_window": "09:30-16:00",
-            "script": "strategies/Ai-strats/sonnet_ore_regime.py",
-            "assets": [
-                "MSTR",
-                "SNOW",
-                "COIN",
-                "ARM",
+                "META",
                 "CRWD",
-                "CRM",
-                "PLTR",
-                "TSM",
-                "TSLA",
-                "AVGO",
-                "PANW",
-                "AMD",
-                "ADBE",
-                "IWM",
-                "HOOD",
-                "ORCL",
-                "INTU",
-                "GS",
-                "GLD",
-                "LULU",
-                "ABNB"
-            ],
-            "frequency": 300,
-            "notes": "Opening Range Expansion + SPY Regime EMA Filter + Volume Delta. Max 1 signal/ticker/day. OR locks at 09:45 EST."
-        }
-    ],
-    "active_testing": [
-        {
-            "name": "Volcanix (VWAP Reclaim)",
-            "active_window": "09:35-15:45",
-            "script": "strategies/active_testing/volcanix_vwap_reclaim/vwap_reclaim_rvol.py",
-            "assets": [
-                "UNH",
-                "DIA",
-                "TSLA",
-                "IWM",
-                "SPY",
-                "V",
-                "PLTR",
-                "AMZN"
-            ],
-            "frequency": 300
-        },
-        {
-            "name": "PO3 + IFVG",
-            "active_window": "09:30-11:00",
-            "script": "strategies/active_testing/po3_ifvg_strategy.py",
-            "assets": [
-                "SPY",
-                "QQQ"
-            ],
-            "frequency": 60
-        },
-        {
-            "name": "NY ORB",
-            "active_window": "09:30-10:00",
-            "script": "strategies/active_testing/ny_orb_strategy.py",
-            "assets": [
-                "SPY",
-                "QQQ"
-            ],
-            "frequency": 3600
-        },
-        {
-            "name": "Wickless Candles",
-            "active_window": "00:00-23:59",
-            "script": "strategies/active_testing/wickless_candle_strategy.py",
-            "assets": [
-                "USDJPY=X",
-                "AUDUSD=X",
-                "USDCAD=X",
-                "QQQ",
-                "IWM",
-                "GC=F"
-            ],
-            "frequency": 3600
-        },
-        {
-            "name": "Dynamic + Daily Bias",
-            "active_window": "09:30-16:00",
-            "script": "strategies/active_testing/dynamic_bias_momentum_strategy.py",
-            "assets": [
-                "NVDA",
+                "ABNB",
+                "SNOW",
                 "GOOGL",
+                "XBI",
                 "TSLA",
-                "QQQ",
-                "PLTR",
-                "MSTR",
-                "COIN",
-                "SMCI"
+                "HOOD",
+                "TQQQ",
+                "UBER",
+                "GLD",
+                "LRCX",
+                "AAPL"
             ],
             "frequency": 3600
+        },
+        {
+            "name": "Apex Bearish (Short ETF Bounce)",
+            "active_window": "09:30-16:00",
+            "script": "strategies/Ai-strats/apex_short_etf_bounce.py",
+            "assets": [
+                "MSTZ",
+                "CONI",
+                "SOXS",
+                "TSLQ",
+                "TZA",
+                "NVDS",
+                "LABD",
+                "GLL",
+                "ZSL",
+                "TECS",
+                "SARK",
+                "SBIT"
+            ],
+            "frequency": 3600,
+            "notes": "Bearish market & short-side capture via Daily Floor Pivot S1/S2 support bounces on Inverse/Short ETFs. Exits on PP/R1."
         },
         {
             "name": "Price Retreat (S1)",
@@ -306,9 +99,259 @@
             "frequency": 3600
         },
         {
+            "name": "Liquidity Sweep (2x Leveraged BTC)",
+            "active_window": "00:00-23:59",
+            "script": "strategies/live_trading/liquidity_sweep_btc/liquidity_sweep_strategy.py",
+            "assets": [
+                "BITU",
+                "SBIT"
+            ],
+            "frequency": 900,
+            "notes": "15m liquidity pool sweep + 1m MSS + FVG scalp. Long -> BITU | Short -> SBIT. No IBIT or BTC traded."
+        },
+        {
+            "name": "Power of 3 (2x Leveraged BTC)",
+            "active_window": "00:00-23:59",
+            "script": "strategies/live_trading/power_of_3/power_of_3.py",
+            "assets": [
+                "BITU",
+                "SBIT"
+            ],
+            "frequency": 300,
+            "notes": "Accumulation-Manipulation-Distribution (PO3/AMD) sweep. Long -> BITU | Short -> SBIT. No IBIT or BTC traded."
+        },
+        {
+            "name": "RSI Reversion",
+            "active_window": "00:00-23:59",
+            "script": "strategies/successful_strategies/iBit_success/rsi_ibit/rsi_reversion.py",
+            "assets": [
+                "BITU",
+                "SBIT",
+                "CLNK",
+                "ETHE",
+                "IREN"
+            ],
+            "frequency": 3600,
+            "notes": "RSI(14) oversold/overbought candlestick mean reversion. Bullish -> BITU | Bearish -> SBIT. Validated across BITU, SBIT, CLNK, ETHE, IREN."
+        },
+        {
+            "name": "Tech Level EMA Touch (2x Leveraged BTC)",
+            "active_window": "00:00-23:59",
+            "script": "strategies/live_trading/btc_tech_level_ema/run_le_model_scanner_tech.py",
+            "assets": [
+                "BITU",
+                "SBIT"
+            ],
+            "frequency": 3600,
+            "notes": "Anchor filter + EMA touch + Volume confirmation. Long -> BITU | Short -> SBIT. No IBIT or BTC traded."
+        },
+        {
+            "name": "Link-Pilled SFP",
+            "active_window": "00:00-23:59",
+            "script": "strategies/successful_strategies/iBit_success/link-pilled/link_pilled.py",
+            "assets": [
+                "BITU",
+                "SBIT",
+                "CLNK",
+                "ETHE",
+                "IREN"
+            ],
+            "frequency": 3600,
+            "notes": "Swing Failure Pattern targeting liquidity sweeps with volume spikes. Bullish -> BITU | Bearish -> SBIT. Validated across BITU, SBIT, CLNK, ETHE, IREN."
+        },
+        {
+            "name": "IBS-3 Index Dip Buyer",
+            "active_window": "15:45-15:59",
+            "script": "strategies/live_trading/systematic_daily/systematic_daily.py",
+            "assets": [
+                "SPY",
+                "DIA",
+                "IWM"
+            ],
+            "frequency": 86400,
+            "timeframe": "1D",
+            "notes": "Long-only index mean reversion. Buy when IBS<0.25, close below the prior 5-day low, and close above the 200SMA. Exit on close above the prior day's high, a 2xATR stop, or 5 sessions. Evaluated on the near-final daily bar in the 15:45-15:59 window."
+        },
+        {
+            "name": "VIX Panic RSI-2",
+            "active_window": "15:45-15:59",
+            "script": "strategies/live_trading/systematic_daily/systematic_daily.py",
+            "assets": [
+                "QQQ"
+            ],
+            "frequency": 86400,
+            "timeframe": "1D",
+            "notes": "Long-only panic reversion. Buy when RSI(2)<10, close above the 200SMA, and VIX between 20 and 35. Exit on close above the 5SMA, RSI(2)>65, a 2xATR stop, or 4 sessions. Exempt from the global CAUTION_MODE veto by design."
+        },
+        {
+            "name": "Turn-of-Month",
+            "active_window": "15:45-15:59",
+            "script": "strategies/live_trading/systematic_daily/systematic_daily.py",
+            "assets": [
+                "SPY",
+                "QQQ"
+            ],
+            "frequency": 86400,
+            "timeframe": "1D",
+            "notes": "Seasonal long-only. Buy near the close of the last business day of the month when above the 200SMA; exit on the third trading session of the new month or a 5-session time stop."
+        },
+        {
+            "name": "Dual Momentum Sector Rotation",
+            "active_window": "15:45-15:59",
+            "script": "strategies/live_trading/systematic_daily/systematic_daily.py",
+            "assets": [
+                "XLK",
+                "XLF",
+                "XLV",
+                "XLE",
+                "XLI",
+                "XLP",
+                "XLU",
+                "XLY",
+                "XLB",
+                "XLRE",
+                "XLC",
+                "SH"
+            ],
+            "frequency": 86400,
+            "timeframe": "1D",
+            "notes": "Monthly long-only rotation. Rank the 11 SPDR sectors by 126-day total return and hold the top 3 equal weight. When SPY is below its 200SMA, rotate to SH (1x inverse) instead. Rebalances on the first trading session of the month."
+        },
+        {
+            "name": "PEAD Earnings Gap Drift",
+            "active_window": "15:45-15:59",
+            "script": "strategies/live_trading/systematic_daily/systematic_daily.py",
+            "assets": [
+                "AAPL",
+                "MSFT",
+                "NVDA",
+                "AMZN",
+                "GOOGL",
+                "META",
+                "TSLA",
+                "AVGO",
+                "JPM",
+                "XOM",
+                "NFLX",
+                "AMD"
+            ],
+            "frequency": 86400,
+            "timeframe": "1D",
+            "notes": "Long-only post-earnings drift. scripts/pead_scanner.py flags names that reported in the last two days; enter at the reaction-day close when the gap is >=2%, volume >=1.5x the 20-day average, and the earnings surprise is >=5%. Exit on an 8% stop, a 15% target, or 20 sessions."
+        }
+    ],
+    "active_testing": [],
+    "meh": [
+        {
+            "name": "Gemini Velocity",
+            "active_window": "09:35-15:45",
+            "script": "strategies/meh/gemini_velocity/gemini_velocity_momentum.py",
+            "assets": [
+                "HOOD",
+                "COIN",
+                "TSM",
+                "ROKU"
+            ],
+            "frequency": 300,
+            "status": "DECOMMISSIONED",
+            "decommission_reason": "Profit Factor < 1.10 in Live Backtest Audit"
+        },
+        {
+            "name": "BigD (PO3/AMD)",
+            "active_window": "00:00-23:59",
+            "script": "strategies/meh/big_d/big_d.py",
+            "assets": [
+                "BITU",
+                "IBIT",
+                "ETHE",
+                "CLNK"
+            ],
+            "frequency": 300,
+            "status": "DECOMMISSIONED",
+            "decommission_reason": "Profit Factor < 1.10 in Live Backtest Audit"
+        },
+        {
+            "name": "LittleD (SFP)",
+            "active_window": "00:00-23:59",
+            "script": "strategies/meh/little_d/little_d.py",
+            "assets": [
+                "BITU",
+                "IBIT",
+                "ETHE",
+                "CLNK"
+            ],
+            "frequency": 3600,
+            "status": "DECOMMISSIONED",
+            "decommission_reason": "Profit Factor < 1.10 in Live Backtest Audit"
+        },
+        {
+            "name": "Volcanix (VWAP Reclaim)",
+            "active_window": "09:35-15:45",
+            "script": "strategies/meh/volcanix_vwap_reclaim/vwap_reclaim_rvol.py",
+            "assets": [
+                "UNH",
+                "DIA",
+                "TSLA",
+                "IWM",
+                "SPY",
+                "V",
+                "PLTR",
+                "AMZN"
+            ],
+            "frequency": 300,
+            "status": "DECOMMISSIONED",
+            "decommission_reason": "Profit Factor < 1.10 in Live Backtest Audit"
+        },
+        {
+            "name": "NY ORB",
+            "active_window": "09:30-10:00",
+            "script": "strategies/meh/ny_orb_strategy.py",
+            "assets": [
+                "SPY",
+                "QQQ"
+            ],
+            "frequency": 3600,
+            "status": "DECOMMISSIONED",
+            "decommission_reason": "Profit Factor < 1.10 in Live Backtest Audit"
+        },
+        {
+            "name": "Wickless Candles",
+            "active_window": "00:00-23:59",
+            "script": "strategies/meh/wickless_candle_strategy.py",
+            "assets": [
+                "USDJPY=X",
+                "AUDUSD=X",
+                "USDCAD=X",
+                "QQQ",
+                "IWM",
+                "GC=F"
+            ],
+            "frequency": 3600,
+            "status": "DECOMMISSIONED",
+            "decommission_reason": "Profit Factor < 1.10 in Live Backtest Audit"
+        },
+        {
+            "name": "Dynamic + Daily Bias",
+            "active_window": "09:30-16:00",
+            "script": "strategies/meh/dynamic_bias_momentum_strategy.py",
+            "assets": [
+                "NVDA",
+                "GOOGL",
+                "TSLA",
+                "QQQ",
+                "PLTR",
+                "MSTR",
+                "COIN",
+                "SMCI"
+            ],
+            "frequency": 3600,
+            "status": "DECOMMISSIONED",
+            "decommission_reason": "Profit Factor < 1.10 in Live Backtest Audit"
+        },
+        {
             "name": "Nova (Optimized)",
             "active_window": "09:30-16:00",
-            "script": "strategies/active_testing/volatility_squeeze_breakout.py",
+            "script": "strategies/meh/volatility_squeeze_breakout.py",
             "assets": [
                 "MSTR",
                 "AAPL",
@@ -318,27 +361,14 @@
                 "QCOM",
                 "PLTR"
             ],
-            "frequency": 3600
-        },
-        {
-            "name": "Awesome Oscillator (AO)",
-            "active_window": "09:30-16:00",
-            "script": "strategies/active_testing/awesome_oscillator.py",
-            "assets": [
-                "AAPL",
-                "MSFT",
-                "GOOGL",
-                "AMZN",
-                "META",
-                "TSLA",
-                "NVDA"
-            ],
-            "frequency": 3600
+            "frequency": 3600,
+            "status": "DECOMMISSIONED",
+            "decommission_reason": "Profit Factor < 1.10 in Live Backtest Audit"
         },
         {
             "name": "MACD Oscillator (MACD)",
             "active_window": "09:30-16:00",
-            "script": "strategies/active_testing/macd_oscillator.py",
+            "script": "strategies/meh/macd_oscillator.py",
             "assets": [
                 "AAPL",
                 "MSFT",
@@ -351,12 +381,14 @@
                 "GS",
                 "SPY"
             ],
-            "frequency": 3600
+            "frequency": 3600,
+            "status": "DECOMMISSIONED",
+            "decommission_reason": "Profit Factor < 1.10 in Live Backtest Audit"
         },
         {
             "name": "Bollinger Bands (BB)",
             "active_window": "09:30-16:00",
-            "script": "strategies/active_testing/bollinger_bands.py",
+            "script": "strategies/meh/bollinger_bands.py",
             "assets": [
                 "AAPL",
                 "MSFT",
@@ -366,12 +398,14 @@
                 "TSLA",
                 "NVDA"
             ],
-            "frequency": 3600
+            "frequency": 3600,
+            "status": "DECOMMISSIONED",
+            "decommission_reason": "Profit Factor < 1.10 in Live Backtest Audit"
         },
         {
             "name": "Shooting Star (SS)",
             "active_window": "09:30-16:00",
-            "script": "strategies/active_testing/shooting_star.py",
+            "script": "strategies/meh/shooting_star.py",
             "assets": [
                 "NVDA",
                 "AVGO",
@@ -383,29 +417,21 @@
                 "JPM",
                 "GOOGL"
             ],
-            "frequency": 3600
+            "frequency": 3600,
+            "status": "DECOMMISSIONED",
+            "decommission_reason": "Profit Factor < 1.10 in Live Backtest Audit"
         },
         {
             "name": "Dual Thrust (DT)",
             "active_window": "09:30-16:00",
-            "script": "strategies/active_testing/dual_thrust.py",
+            "script": "strategies/meh/dual_thrust.py",
             "assets": [
-                "SOL-USD",
-                "ADA-USD",
                 "SMCI",
-                "XRP-USD",
-                "NEAR-USD",
                 "PLTR",
                 "MU",
-                "DOGE-USD",
                 "COIN",
                 "NET",
                 "NVDA",
-                "AVAX-USD",
-                "DOT-USD",
-                "BNB-USD",
-                "ALGO-USD",
-                "PATH",
                 "ARM",
                 "CAT",
                 "AVGO",
@@ -416,45 +442,45 @@
                 "SHOP",
                 "ARKW"
             ],
-            "frequency": 3600
+            "frequency": 3600,
+            "status": "DECOMMISSIONED",
+            "decommission_reason": "Profit Factor < 1.10 in Live Backtest Audit"
         },
         {
             "name": "Heikin Ashi (HA)",
             "active_window": "09:30-16:00",
-            "script": "strategies/active_testing/heikin_ashi.py",
+            "script": "strategies/meh/heikin_ashi.py",
             "assets": [
                 "SMCI",
                 "LRCX",
-                "DOGE-USD",
                 "MSTR",
                 "PLTR",
                 "NVDA",
                 "TSM",
                 "ARM",
                 "COIN",
-                "LINK-USD",
                 "KLAC",
                 "DDOG",
-                "LTC-USD",
                 "TQQQ",
                 "MU",
                 "SHOP",
                 "AVGO",
                 "SNOW",
                 "NET",
-                "SHIB-USD",
                 "CRWD",
                 "MDB",
                 "SMH",
                 "ASML",
                 "META"
             ],
-            "frequency": 3600
+            "frequency": 3600,
+            "status": "DECOMMISSIONED",
+            "decommission_reason": "Profit Factor < 1.10 in Live Backtest Audit"
         },
         {
             "name": "Strategy OS",
             "active_window": "09:30-16:00",
-            "script": "strategies/active_testing/strategy_os.py",
+            "script": "strategies/meh/strategy_os.py",
             "assets": [
                 "SMCI",
                 "MU",
@@ -482,7 +508,86 @@
                 "ROKU",
                 "KLAC"
             ],
-            "frequency": 3600
+            "frequency": 3600,
+            "status": "DECOMMISSIONED",
+            "decommission_reason": "Profit Factor < 1.10 in Live Backtest Audit"
+        },
+        {
+            "name": "Sonnet (ORE + Regime)",
+            "label": "S1",
+            "series": "S-Series",
+            "active_window": "09:30-16:00",
+            "script": "strategies/meh/sonnet_ore_regime.py",
+            "assets": [
+                "MSTR",
+                "SNOW",
+                "COIN",
+                "ARM",
+                "CRWD",
+                "CRM",
+                "PLTR",
+                "TSM",
+                "TSLA",
+                "AVGO",
+                "PANW",
+                "AMD",
+                "ADBE",
+                "IWM",
+                "HOOD",
+                "ORCL",
+                "INTU",
+                "GS",
+                "GLD",
+                "LULU",
+                "ABNB"
+            ],
+            "frequency": 300,
+            "notes": "Opening Range Expansion + SPY Regime EMA Filter + Volume Delta. Max 1 signal/ticker/day. OR locks at 09:45 EST.",
+            "status": "DECOMMISSIONED",
+            "decommission_reason": "Decommissioned by User Request"
+        },
+        {
+            "name": "Awesome Oscillator (AO)",
+            "active_window": "09:30-16:00",
+            "script": "strategies/meh/awesome_oscillator.py",
+            "assets": [
+                "AAPL",
+                "MSFT",
+                "GOOGL",
+                "AMZN",
+                "META",
+                "TSLA",
+                "NVDA"
+            ],
+            "frequency": 3600,
+            "status": "DECOMMISSIONED",
+            "decommission_reason": "Decommissioned by User Request"
+        },
+        {
+            "name": "Inside Candle (2x Leveraged BTC)",
+            "active_window": "00:00-23:59",
+            "script": "strategies/meh/inside_candle_btc/inside_candle_strategy.py",
+            "assets": [
+                "BITU",
+                "SBIT"
+            ],
+            "frequency": 3600,
+            "notes": "Mother Bar / Inside Bar breakout. Long -> BITU | Short -> SBIT. No IBIT or BTC traded.",
+            "status": "DECOMMISSIONED",
+            "reason": "Profit Factor Sub-1.10 in Live Backtest Audit (PF 0.87)"
+        },
+        {
+            "name": "SMC Bitcoin (2x Leveraged)",
+            "active_window": "00:00-23:59",
+            "script": "strategies/meh/smc_btc/smc_strategy.py",
+            "assets": [
+                "BITU",
+                "SBIT"
+            ],
+            "frequency": 3600,
+            "notes": "Smart Money Concepts market structure shift & FVG retrace. Long -> BITU | Short -> SBIT. No IBIT or BTC traded.",
+            "status": "DECOMMISSIONED",
+            "reason": "Profit Factor Sub-1.10 in Live Backtest Audit (PF 0.76)"
         }
     ]
 }

@@ -5,6 +5,8 @@ import json
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from dotenv import load_dotenv
+from datetime import datetime
+import pytz
 
 # Path setup
 DEXTER_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -14,9 +16,11 @@ load_dotenv(os.path.join(DEXTER_ROOT, ".env"))
 # Import Dexter's core functions
 from strategies.validation.alpha_autotrader import generate_daily_pnl_report, execute_trade, get_active_positions, find_entry_price, INVERSE_MAP
 import yfinance as yf
+from scripts.qualitative_validator import validate_signal
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+EST = pytz.timezone('US/Eastern')
 
 # Initialize Bolt App
 app = App(token=os.environ.get("DEXTER_SLACK_BOT_TOKEN"))
@@ -247,39 +251,63 @@ def handle_mentions(event, say):
         except Exception as e:
             dexter_say(f"❌ Emergency exit failed: {e}")
 
-    elif "close" in text:
-        # Handle 'close <ticker>'
+    elif "stop trading" in text:
+        dexter_say("🛑 *HALTING ALL TRADING OPERATIONS...*")
+        try:
+            with open(os.path.join(DEXTER_ROOT, "PILOT_LIGHT.json"), 'r') as f:
+                config = json.load(f)
+            config['enabled'] = False
+            config['last_toggle'] = datetime.now(EST).strftime("%Y-%m-%d %H:%M:%S EST")
+            with open(os.path.join(DEXTER_ROOT, "PILOT_LIGHT.json"), 'w') as f:
+                json.dump(config, f, indent=4)
+            dexter_say("✅ Pilot Light is now **OFF**. No new trades will be initiated.")
+        except Exception as e:
+            dexter_say(f"❌ Failed to halt trading: {e}")
+
+    elif "start trading" in text:
+        dexter_say("🚀 *RESTORING TRADING OPERATIONS...*")
+        try:
+            with open(os.path.join(DEXTER_ROOT, "PILOT_LIGHT.json"), 'r') as f:
+                config = json.load(f)
+            config['enabled'] = True
+            config['last_toggle'] = datetime.now(EST).strftime("%Y-%m-%d %H:%M:%S EST")
+            with open(os.path.join(DEXTER_ROOT, "PILOT_LIGHT.json"), 'w') as f:
+                json.dump(config, f, indent=4)
+            dexter_say("✅ Pilot Light is now **ON**. Scanning for alpha...")
+        except Exception as e:
+            dexter_say(f"❌ Failed to restore trading: {e}")
+
+        else:
+            dexter_say("❓ Please specify a ticker (e.g., `close NVDA`).")
+            
+    elif "research" in text:
+        # Handle 'research <ticker>'
         import re
         ticker = None
-        # Look for ticker after 'close'
-        match = re.search(r"close\s+([A-Z0-9.]+)", text.upper())
+        match = re.search(r"research\s+([A-Z0-9.]+)", text.upper())
         if match:
             ticker = match.group(1)
             
         if ticker:
-            dexter_say(f"⏳ *Exiting position for {ticker}...*")
+            dexter_say(f"🧠 *Initiating Qualitative Analyst Debate for {ticker}...*\n_Consulting Market, Fundamental, and News agents. This may take 5-10 minutes._")
             try:
-                pos = get_active_positions()
-                if ticker in pos:
-                    qty = pos[ticker]
-                    # Fetch price
-                    price = 0.0
-                    try:
-                        hist = yf.Ticker(ticker).history(period="1d")
-                        if not hist.empty:
-                            price = hist['Close'].iloc[-1]
-                    except: pass
-                    
-                    if price == 0.0: price = 100.0 # Bypasses notional guard
-                    
-                    execute_trade("Slack Manual Close", ticker, "SELL", price, quantity_override=qty)
-                    dexter_say(f"✅ Closed {ticker} ({qty} units).")
-                else:
-                    dexter_say(f"❌ No active position found for `{ticker}`.")
+                verdict, confidence, reasoning = validate_signal(ticker, "SLACK ON-DEMAND RESEARCH", timeframe="2-4 week timeframe")
+                
+                status_icon = "🟢" if verdict == "BUY" else "🔴" if verdict == "SELL" else "🟡"
+                
+                report = f"🧪 *QUALITATIVE RESEARCH VERDICT: {ticker}*\n"
+                report += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                report += f"● *Decision*: {status_icon} `{verdict}`\n"
+                report += f"● *Confidence*: `{confidence*100:.1f}%`\n\n"
+                report += f"*Analyst Consensus Summary*:\n{reasoning}\n"
+                report += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                report += f"✅ Research complete. Analysis based on DeepSeek V3."
+                
+                dexter_say(report)
             except Exception as e:
-                dexter_say(f"❌ Failed to close {ticker}: {e}")
+                dexter_say(f"❌ Research failed for {ticker}: {e}")
         else:
-            dexter_say("❓ Please specify a ticker (e.g., `close NVDA`).")
+            dexter_say("❓ Please specify a ticker (e.g., `research TSLA`).")
 
     elif "bias" in text or "sentiment" in text:
         dexter_say("🔍 *Consulting the Quantitative Oracle...*")
@@ -293,6 +321,7 @@ def handle_mentions(event, say):
             "`signals` - Run signal scanners",
             "`positions` - View current portfolio",
             "`bias` - Get daily technical sentiment",
+            "`research <ticker>` - Deep-dive analyst debate",
             "`close <ticker>` - Exit specific position",
             "`close all` - Emergency portfolio liquidation"
         ]

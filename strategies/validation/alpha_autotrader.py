@@ -22,6 +22,11 @@ import pickle
 
 # Slack Integration
 from scripts.slack_notifier import send_dexter_slack_alert
+from scripts.board_io import read_text, write_text_atomic
+
+# Systematic daily book
+from strategies.live_trading.systematic_daily import systematic_daily as sysd
+from strategies.live_trading.systematic_daily import position_book
 
 # Standard library imports for Winsound if on Windows
 try:
@@ -104,8 +109,8 @@ except Exception:
 
 # Setup Paths & Config
 EST = pytz.timezone('US/Eastern')
-MAX_CONCURRENT_TRADES = 4
-POSITION_SIZE_USD = 75.0
+MAX_CONCURRENT_TRADES = int(os.getenv("MAX_CONCURRENT_TRADES", "12"))
+POSITION_SIZE_USD = float(os.getenv("POSITION_SIZE_USD", "10.0"))
 MIN_NOTIONAL_USD = 2.0 # Proposal 22: Reject orders < $2.0 to clear RH $1 minimum
 
 DEXTER_ROOT = r"C:\Users\jmgra\antigravityagents\dexter-quant-agent"
@@ -138,6 +143,40 @@ LUNCHBOX_COOLDOWN_SEC = 900 # 15 minute hard cooldown for Noon-Curve
 RAPID_STRAT_COOLDOWN_SEC = 600 # 10 minute cooldown for Matt-Rapid, DB V3, volcanix
 SLIPPAGE_TOLERANCE = 0.002 # 0.2% max slippage for market orders
 
+# --- 📊 SIGNAL-QUALITY GOVERNANCE ------------------------------------------
+# SIGNAL_QUALITY is refreshed nightly by scripts/signal_quality_tracker.py and
+# loaded in run_alpha_autotrader().  It now drives three decisions:
+#   * block new entries for a demoted strategy
+#   * halve size for a weak strategy
+#   * boost size (modestly) for a proven one
+# Below QUALITY_MIN_SAMPLE trades we stay neutral rather than starve a new book.
+QUALITY_MIN_SAMPLE = 10
+QUALITY_BLOCK_PF = 0.80
+QUALITY_HALF_PF = 1.20
+QUALITY_BOOST_PF = 1.30
+QUALITY_LOW_WIN_RATE = 45.0
+
+
+def quality_verdict(strategy_name):
+    """Return (size_multiplier, block_new_entries, reason) for a strategy."""
+    stats = SIGNAL_QUALITY.get(strategy_name) or {}
+    n = int(stats.get("total_trades", 0) or 0)
+    if n < QUALITY_MIN_SAMPLE:
+        return 1.0, False, "neutral (insufficient sample)"
+
+    pf = stats.get("profit_factor")
+    wr = float(stats.get("win_rate", 50.0) or 50.0)
+
+    if n >= 20 and pf is not None and float(pf) < QUALITY_BLOCK_PF:
+        return 0.0, True, f"DEMOTED: PF {float(pf):.2f} over {n} trades"
+    if n >= 20 and pf is not None and float(pf) >= QUALITY_BOOST_PF:
+        return 1.25, False, f"boosted: PF {float(pf):.2f} over {n} trades"
+    if n >= 20 and pf is not None and float(pf) < QUALITY_HALF_PF:
+        return 0.5, False, f"half size: PF {float(pf):.2f} over {n} trades"
+    if wr < QUALITY_LOW_WIN_RATE:
+        return 0.5, False, f"half size: win rate {wr:.1f}% over {n} trades"
+    return 1.0, False, "neutral"
+
 # --- 📝 BATCHED I/O LOG BUFFER (Proposal 4) ---
 LOG_BUFFER: list = []
 LOG_BUFFER_LIMIT = 50    # Flush to disk when this many lines accumulate
@@ -150,7 +189,18 @@ BOARD_QUEUE: _queue_mod.Queue = _queue_mod.Queue()
 _BOARD_THREAD_STARTED = False
 GLOBAL_ACTIVE_POSITIONS = {}
 
-# Inverse Mapping for Shorting on Robinhood (Bearish Proxies for Cash Accounts)
+# --- 2x LEVERAGED BITCOIN & SHORT ASSET MAPPINGS ---
+# Long 2x Bitcoin ETF: BITU (ProShares Ultra Bitcoin ETF)
+# Short 2x Bitcoin ETF: SBIT (ProShares UltraShort Bitcoin ETF)
+LONG_MAP = {
+    "BITU": "BITU",
+    "IBIT": "BITU",
+    "BTC-USD": "BITU",
+    "BTC": "BITU",
+    "BITO": "BITU",
+}
+
+# Inverse Mapping for Shorting on Cash Accounts (Bearish Proxies)
 INVERSE_MAP = {
     "SPY": "SH",     # Inverse S&P 500
     "QQQ": "PSQ",    # Inverse Nasdaq 100
@@ -160,7 +210,7 @@ INVERSE_MAP = {
     "TSLA": "TSLQ",  # Inverse Tesla
     "NVDA": "NVDS",  # Inverse Nvidia
     "AAPL": "AAPD",  # 2x Inverse Apple
-    "AMZN": "AMZS",  # Inverse Amazon
+    "AMZN": "AMZD",  # Direxion Daily AMZN Bear 1X Shares
     "MSFT": "MSFY",  # Inverse Microsoft
     "GOOGL": "SQQQ", # Use Nasdaq Inverse proxy if direct missing
     "META": "METP",  # Inverse Meta
@@ -172,7 +222,304 @@ INVERSE_MAP = {
     "KLAC": "SOXS",  # 3x Inverse Semiconductors
     "TSM": "SOXS",   # 3x Inverse Semiconductors
     "ARM": "SOXS",   # 3x Inverse Semiconductors
+    "PLTR": "PLTD",  # Inverse Palantir (Direxion Daily PLTR Bear 1X ETF)
+    "MSTR": "MSTZ",  # 2x Inverse MicroStrategy (T-REX 2X Inverse MSTR Daily Target ETF)
+    "AMD": "AMDD",   # Inverse AMD (Direxion Daily AMD Bear 1X ETF)
+    "LRCX": "SOXS",  # 3x Inverse Semiconductors
+    "SMH": "SOXS",   # 3x Inverse Semiconductors
+    "SOXL": "SOXS",  # 3x Inverse Semiconductors
+    "TQQQ": "SQQQ",  # 3x Inverse Nasdaq 100
+    "XLK": "TECS",   # 3x Inverse Technology
+    "XLF": "FAZ",    # 3x Inverse Financials
+    "CRWD": "SQQQ",  # Nasdaq 100 3x Inverse Proxy
+    "ABNB": "SQQQ",  # Nasdaq 100 3x Inverse Proxy
+    "HOOD": "SQQQ",  # High-Beta Tech/Fintech Inverse Proxy
+    "UBER": "SH",    # S&P 500 Inverse Proxy
+    "GLD": "GLL",    # 2x Inverse Gold
+    "SLV": "ZSL",    # 2x Inverse Silver
+    "SBIT": "BITU",  # Inverse of Short ETF -> Long 2x BTC ETF
+    "SQQQ": "TQQQ",  # Inverse of Short QQQ -> Long 3x QQQ ETF
+    "SOXS": "SOXL",  # Inverse of Short Semis -> Long 3x Semis ETF
+    # 2x Short ProShares UltraShort Bitcoin ETF:
+    "BITU": "SBIT",  # Short BITU -> Open SBIT
+    "IBIT": "SBIT",  # Short IBIT -> Open SBIT
+    "BTC-USD": "SBIT", # Short BTC-USD -> Open SBIT
+    "BTC": "SBIT",
+    "BITO": "SBIT",
+    "ETHE": "SETH",  # Inverse Ethereum
 }
+
+# --- ⚡ 2x LEVERAGED BITCOIN ETF RISK ENGINE & CIRCUIT BREAKER ---
+LEVERAGED_BTC_ETFS = {"BITU", "SBIT"}
+INVERSE_BEAR_ETFS = {
+    "SBIT", "BITI", "SETH", "SQQQ", "PSQ", "QID", "SPXS", "SPXU", "SH", "SDS",
+    "TZA", "SRTY", "RWM", "SDOW", "DOG", "SOXS", "TECS", "LABD", "FAZ", "DRV",
+    "GLL", "ZSL", "SARK", "TSLQ", "NVDS", "NVD", "MSTZ", "PLTD", "AMDD", "AAPD",
+    "AMZD", "MSFY", "METP", "CONI"
+}
+ETF_POSITIONS_FILE = os.path.join(DEXTER_ROOT, 'cache', 'etf_positions.json')
+CIRCUIT_BREAKER_FILE = os.path.join(DEXTER_ROOT, 'cache', 'circuit_breaker.json')
+
+# Configurable exit and circuit breaker thresholds
+ETF_STOP_LOSS_PCT = float(os.getenv("ETF_STOP_LOSS_PCT", "2.0"))     # Default: 2% Stop Loss on 2x ETF
+ETF_TAKE_PROFIT_PCT = float(os.getenv("ETF_TAKE_PROFIT_PCT", "4.0")) # Default: 4% Take Profit on 2x ETF
+ETF_MAX_HOLD_MINUTES = int(os.getenv("ETF_MAX_HOLD_MINUTES", "240")) # Default: 240 mins (4 hours)
+DAILY_CIRCUIT_BREAKER_PCT = float(os.getenv("DAILY_CIRCUIT_BREAKER_PCT", "4.5")) # Default: 4.5% drawdown
+
+def load_etf_positions():
+    """Loads active leveraged Bitcoin ETF positions (BITU / SBIT) from disk cache."""
+    if os.path.exists(ETF_POSITIONS_FILE):
+        try:
+            with open(ETF_POSITIONS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            log_engine(f"Warning: Failed to load ETF positions: {e}", level="warning")
+    return {}
+
+def save_etf_positions(positions):
+    """Persists active leveraged Bitcoin ETF positions to disk cache."""
+    try:
+        os.makedirs(os.path.dirname(ETF_POSITIONS_FILE), exist_ok=True)
+        with open(ETF_POSITIONS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(positions, f, indent=4)
+    except Exception as e:
+        log_engine(f"Error saving ETF positions: {e}", level="error")
+
+def record_etf_entry(symbol, entry_price, side, quantity, strategy_name):
+    """Task 1: On entry, record entry_price, symbol (LONG_ETF or SHORT_ETF), and side."""
+    positions = load_etf_positions()
+    now_est = datetime.now(EST)
+    positions[symbol] = {
+        "symbol": symbol,
+        "entry_price": float(entry_price),
+        "side": side.upper(),  # "LONG" (for BITU) or "SHORT" (for SBIT)
+        "quantity": float(quantity),
+        "entry_time": now_est.strftime("%Y-%m-%d %H:%M:%S EST"),
+        "entry_timestamp": time.time(),
+        "strategy_name": strategy_name
+    }
+    save_etf_positions(positions)
+    log_engine(f"📌 RECORDED ETF POSITION: {symbol} ({side.upper()}) | Entry: ${float(entry_price):.2f} | Qty: {quantity} | Strat: {strategy_name}")
+
+def remove_etf_position(symbol):
+    """Removes an ETF position from active tracking once closed."""
+    positions = load_etf_positions()
+    if symbol in positions:
+        pos = positions.pop(symbol)
+        save_etf_positions(positions)
+        log_engine(f"🗑️ CLEARED ETF POSITION: {symbol} (Was opened at ${pos.get('entry_price', 0):.2f})")
+
+def get_etf_realtime_price(symbol):
+    """Fetches real-time market price for an ETF ticker."""
+    try:
+        t = yf.Ticker(symbol)
+        if hasattr(t, "fast_info") and "lastPrice" in t.fast_info and t.fast_info["lastPrice"] is not None:
+            return float(t.fast_info["lastPrice"])
+        if hasattr(t, "fast_info") and hasattr(t.fast_info, "last_price") and t.fast_info.last_price is not None:
+            return float(t.fast_info.last_price)
+        hist = t.history(period="1d", interval="1m")
+        if not hist.empty:
+            return float(hist["Close"].iloc[-1])
+        hist_day = t.history(period="1d")
+        if not hist_day.empty:
+            return float(hist_day["Close"].iloc[-1])
+    except Exception as e:
+        log_engine(f"Warning: Could not fetch real-time price for {symbol}: {e}", level="warning")
+    return None
+
+def load_circuit_breaker_state():
+    """Loads daily circuit breaker state tracking equity drawdown."""
+    today_str = datetime.now(EST).strftime("%Y-%m-%d")
+    default_state = {
+        "date": today_str,
+        "starting_equity": 0.0,
+        "peak_equity": 0.0,
+        "current_equity": 0.0,
+        "drawdown_pct": 0.0,
+        "tripped": False,
+        "trip_time": None,
+        "trip_reason": None
+    }
+    if os.path.exists(CIRCUIT_BREAKER_FILE):
+        try:
+            with open(CIRCUIT_BREAKER_FILE, 'r', encoding='utf-8') as f:
+                state = json.load(f)
+                if state.get("date") == today_str:
+                    return state
+        except Exception as e:
+            log_engine(f"Warning: Failed to load circuit breaker state: {e}", level="warning")
+    return default_state
+
+def save_circuit_breaker_state(state):
+    """Persists circuit breaker state to disk cache."""
+    try:
+        os.makedirs(os.path.dirname(CIRCUIT_BREAKER_FILE), exist_ok=True)
+        with open(CIRCUIT_BREAKER_FILE, 'w', encoding='utf-8') as f:
+            json.dump(state, f, indent=4)
+    except Exception as e:
+        log_engine(f"Error saving circuit breaker state: {e}", level="error")
+
+def is_circuit_breaker_active():
+    """Returns True if the daily circuit breaker has been tripped today."""
+    state = load_circuit_breaker_state()
+    return bool(state.get("tripped", False))
+
+def get_current_portfolio_equity(port=5005):
+    """Calculates total portfolio equity (cash + stock market value) from bridge."""
+    try:
+        # Cash
+        cash_url = f"http://127.0.0.1:{port}/cash"
+        c_resp = requests.get(cash_url, timeout=5)
+        portfolio_cash = 0.0
+        if c_resp.status_code == 200:
+            c_data = c_resp.json()
+            portfolio_cash = float(c_data.get("portfolio_cash") or c_data.get("cash_available_for_withdrawal") or 0.0)
+
+        # Positions
+        pos_url = f"http://127.0.0.1:{port}/positions"
+        p_resp = requests.get(pos_url, timeout=5)
+        stock_equity = 0.0
+        if p_resp.status_code == 200:
+            p_data = p_resp.json()
+            stocks = p_data.get("stocks", {})
+            for sym, info in stocks.items():
+                qty = float(info.get("quantity", 0))
+                if qty > 0:
+                    eq = float(info.get("equity") or 0)
+                    if eq <= 0:
+                        pr = float(info.get("price") or 0)
+                        eq = qty * pr
+                    stock_equity += eq
+        total_equity = portfolio_cash + stock_equity
+        return total_equity if total_equity > 0 else None
+    except Exception:
+        return None
+
+def evaluate_etf_exits_and_circuit_breaker(mode="LIVE_MARKET"):
+    """
+    Evaluates:
+    1. Daily Circuit Breaker: If equity drawdown >= DAILY_CIRCUIT_BREAKER_PCT (default 4.5%),
+       flattens all ETF positions and pauses new entries.
+    2. Unrealized PnL % on 2x Leveraged Bitcoin ETFs (BITU / SBIT):
+       - Stop Loss: PnL <= -2.0% -> 'Stop Loss (-2% on 2x ETF)'
+       - Take Profit: PnL >= +4.0% -> 'Take Profit (+4% on 2x ETF)'
+       - Max Hold: Duration >= ETF_MAX_HOLD_MINUTES -> 'Max Hold Period'
+    """
+    now_time = time.time()
+    cb_state = load_circuit_breaker_state()
+
+    # 1. Update Portfolio Equity & Circuit Breaker Tracking
+    equity = get_current_portfolio_equity()
+    if equity is not None and equity > 0:
+        if cb_state.get("starting_equity", 0.0) <= 0:
+            cb_state["starting_equity"] = equity
+            cb_state["peak_equity"] = equity
+
+        if equity > cb_state.get("peak_equity", 0.0):
+            cb_state["peak_equity"] = equity
+
+        cb_state["current_equity"] = equity
+        peak = cb_state["peak_equity"]
+        drawdown_pct = ((peak - equity) / peak) * 100.0 if peak > 0 else 0.0
+        cb_state["drawdown_pct"] = round(drawdown_pct, 2)
+
+        # Check if Circuit Breaker tripped
+        if drawdown_pct >= DAILY_CIRCUIT_BREAKER_PCT and not cb_state.get("tripped", False):
+            cb_state["tripped"] = True
+            cb_state["trip_time"] = datetime.now(EST).strftime("%Y-%m-%d %H:%M:%S EST")
+            cb_state["trip_reason"] = f"Daily drawdown reached {drawdown_pct:.2f}% (Threshold: {DAILY_CIRCUIT_BREAKER_PCT}%)"
+            save_circuit_breaker_state(cb_state)
+
+            trip_msg = (
+                f"🚨 *DAILY CIRCUIT BREAKER TRIPPED*\n"
+                f"Drawdown: -{drawdown_pct:.2f}% from peak (${peak:.2f} -> ${equity:.2f})\n"
+                f"Threshold: {DAILY_CIRCUIT_BREAKER_PCT}%\n"
+                f"Action: FLATTENING ALL 2x BITCOIN ETF POSITIONS & PAUSING NEW ENTRIES."
+            )
+            log_engine(trip_msg, level="error")
+            send_quant_alert(trip_msg)
+
+            # Flatten all active ETF positions immediately
+            active_etfs = load_etf_positions()
+            for sym, pos in list(active_etfs.items()):
+                qty = pos.get("quantity")
+                curr_px = get_etf_realtime_price(sym) or pos.get("entry_price")
+                execute_trade(f"Daily Circuit Breaker (-{drawdown_pct:.1f}% Drawdown)", sym, "SELL", curr_px, mode=mode, quantity_override=qty)
+                remove_etf_position(sym)
+            return
+
+        save_circuit_breaker_state(cb_state)
+
+    # 2. Check if circuit breaker is active (blocks entries, ensures flattened state)
+    if cb_state.get("tripped", False):
+        log_engine(f"⏸️ Circuit breaker is active for today ({cb_state.get('trip_reason')}). New entries paused.", level="warning")
+
+    # 3. Fetch Active Positions from Broker to cross-reference
+    active_broker_positions = get_active_positions(mode=mode)
+    tracked_positions = load_etf_positions()
+
+    # Auto-seed any broker positions that might be missing from tracked_positions
+    for sym in LEVERAGED_BTC_ETFS:
+        if sym in active_broker_positions and sym not in tracked_positions:
+            qty = active_broker_positions[sym]
+            entry_px = find_entry_price(sym) or get_etf_realtime_price(sym) or 0.0
+            side = "LONG" if sym == "BITU" else "SHORT"
+            record_etf_entry(sym, entry_px, side, qty, "Auto-Seeded Broker Position")
+            tracked_positions = load_etf_positions()
+
+    # 4. Evaluate Bracket Exits on tracked Leveraged ETFs
+    for sym, pos in list(tracked_positions.items()):
+        if sym not in LEVERAGED_BTC_ETFS:
+            continue
+
+        qty = pos.get("quantity")
+        if sym in active_broker_positions:
+            qty = active_broker_positions[sym]
+
+        entry_price = float(pos.get("entry_price", 0))
+        if entry_price <= 0:
+            continue
+
+        curr_price = get_etf_realtime_price(sym)
+        if not curr_price or curr_price <= 0:
+            log_engine(f"Could not retrieve real-time price for {sym} to calculate exits.", level="warning")
+            continue
+
+        # PnL % calculated on the ETF itself (both BITU and SBIT are held long)
+        pnl_pct = ((curr_price - entry_price) / entry_price) * 100.0
+
+        entry_ts = pos.get("entry_timestamp", now_time)
+        hold_minutes = (now_time - entry_ts) / 60.0
+
+        side_label = pos.get("side", "LONG")
+        log_engine(f"🔍 ETF EXIT CHECK: {sym} ({side_label}) | Entry: ${entry_price:.2f} | Current: ${curr_price:.2f} | PnL: {pnl_pct:+.2f}% | Hold: {hold_minutes:.1f}m/{ETF_MAX_HOLD_MINUTES}m")
+
+        exit_label = None
+        alert_title = None
+        if pnl_pct <= -ETF_STOP_LOSS_PCT:
+            exit_label = "Stop Loss (-2% on 2x ETF)"
+            alert_title = "🛑 *LEVERAGED ETF STOP-LOSS HIT*"
+        elif pnl_pct >= ETF_TAKE_PROFIT_PCT:
+            exit_label = "Take Profit (+4% on 2x ETF)"
+            alert_title = "🎯 *LEVERAGED ETF TAKE-PROFIT HIT*"
+        elif hold_minutes >= ETF_MAX_HOLD_MINUTES:
+            exit_label = "Max Hold Period"
+            alert_title = "⏰ *LEVERAGED ETF MAX-HOLD EXIT HIT*"
+
+        if exit_label:
+            log_engine(f"🚨 TRIGGERING EXIT: {sym} -> {exit_label} (PnL: {pnl_pct:+.2f}%, Held: {hold_minutes:.1f}m)")
+            send_quant_alert(
+                f"{alert_title}\n"
+                f"Symbol: {sym} ({side_label})\n"
+                f"Reason: {exit_label}\n"
+                f"Entry Price: ${entry_price:.2f}\n"
+                f"Exit Price: ${curr_price:.2f}\n"
+                f"Unrealized PnL: {pnl_pct:+.2f}%\n"
+                f"Hold Duration: {hold_minutes:.1f} min\n"
+                f"Strategy: {pos.get('strategy_name', 'Quant Alpha')}"
+            )
+            execute_trade(exit_label, sym, "SELL", curr_price, mode=mode, quantity_override=qty)
+            remove_etf_position(sym)
 
 def is_in_window(window_str):
     """Checks if current EST time is within HH:MM-HH:MM window."""
@@ -206,73 +553,141 @@ def log_engine(message, level="info"):
     global LOG_BUFFER
     timestamp = datetime.now(EST).strftime("%Y-%m-%d %H:%M:%S")
     formatted = f"[{timestamp}] [{level.upper()}] {message}"
-    print(formatted)
+    try:
+        print(formatted)
+    except UnicodeEncodeError:
+        print(formatted.encode('ascii', errors='replace').decode('ascii'))
     with LOG_BUFFER_LOCK:
         LOG_BUFFER.append(formatted)
         should_flush = len(LOG_BUFFER) >= LOG_BUFFER_LIMIT
     if should_flush:
         flush_log_buffer()
 
-def send_quant_alert(message):
-    """Sends an alert to the designated Slack Quant channel."""
-    return send_dexter_slack_alert(message)
+def send_quant_alert(message, is_error=False):
+    """Sends an alert to Buzz (#Quantative-Analyst for trades, #Triage for errors)."""
+    return send_dexter_slack_alert(message, is_error=is_error)
 
-def close_short_term_positions(timeframes=['1m', '5m', '10m']):
-    """Fetches all open positions and closes those that meet the 'short-term' criteria."""
+def _position_price(ticker, pos):
+    """Best available price for an open position, without blocking on a slow feed."""
+    try:
+        live_px = float(pos.get("price") or 0)
+        if live_px > 0:
+            return live_px
+    except (TypeError, ValueError):
+        pass
+    try:
+        hist = yf.Ticker(ticker).history(period="1d", interval="1m")
+        if hist is not None and not hist.empty:
+            return float(hist["Close"].iloc[-1])
+    except Exception:
+        pass
+    try:
+        hist = yf.Ticker(ticker).history(period="5d", interval="1d")
+        if hist is not None and not hist.empty:
+            return float(hist["Close"].iloc[-1])
+    except Exception:
+        pass
+    return 0.0
+
+
+def _load_intraday_only_strategies(registry):
+    """Names of strategies that must be flat overnight (frequency <= 10 min)."""
+    names = set()
+    for cat in ['live_trading', 'active_testing']:
+        for s in registry.get(cat, []):
+            if int(s.get('frequency', 3600) or 3600) <= 600:
+                names.add(s['name'])
+    names.add("Volcanix (VWAP Reclaim)")
+    return names
+
+
+def close_short_term_positions(timeframes=None):
+    """Flatten intraday-only positions at the close.
+
+    Fixes versus the original implementation:
+      * sells the position's actual quantity (it used to sell ~$10 worth and
+        log "Not enough shares to sell")
+      * attributes the exit to the strategy that opened the trade, so the
+        signal-quality feedback loop can pair entry and exit
+      * never touches multi-day systematic positions, even when their symbol
+        also appears in an intraday strategy's asset list
+      * uses the broker's mark when available instead of a second yfinance call
+    """
     log_engine("🌅 Starting EOD Close of Short-Term Positions...")
     try:
-        # 1. Fetch current positions from bridge
-        resp = requests.get("http://localhost:5005/positions", timeout=15)
+        resp = requests.get("http://127.0.0.1:5005/positions", timeout=15)
         if resp.status_code != 200:
             log_engine(f"Error fetching positions: {resp.text}", level="error")
             return
-        
-        data = resp.json()
-        stocks = data.get("stocks", {})
-        
-        # 2. Filter and Close
+
+        stocks = resp.json().get("stocks", {})
+
         registry = {}
         if os.path.exists(REGISTRY_PATH):
             with open(REGISTRY_PATH, 'r') as f:
                 registry = json.load(f)
-        
-        short_term_strats = []
-        # Find strategies that are 1m, 5m, 10m based on registry frequency
+
+        intraday_names = _load_intraday_only_strategies(registry)
+
+        # Authoritative ticker -> strategy mapping, written on every fill.
+        active_map = {}
+        try:
+            if os.path.exists(ACTIVE_STRATEGIES_FILE):
+                with open(ACTIVE_STRATEGIES_FILE, 'r') as f:
+                    active_map = json.load(f)
+        except Exception as e:
+            log_engine(f"EOD: could not read strategy map: {e}", level="warning")
+
+        # Symbol -> intraday strategy fallback (only when the map is missing).
+        symbol_to_intraday = {}
         for cat in ['live_trading', 'active_testing']:
             for s in registry.get(cat, []):
-                freq = s.get('frequency', 60)
-                if freq <= 600: # 10 minutes or less
-                    short_term_strats.append(s['name'])
-        
-        # Also include Volcanix explicitly as per user request
-        short_term_strats.append("Volcanix (VWAP Reclaim)")
+                if s['name'] in intraday_names:
+                    for sym in s.get('assets', []):
+                        symbol_to_intraday.setdefault(sym, s['name'])
+
+        systematic_book = position_book.load_book()
+        systematic_symbols = {rec.get("ticker") for rec in systematic_book.values()}
 
         closed_count = 0
+        skipped_unknown = []
+
         for ticker, pos in stocks.items():
-            qty = float(pos.get('quantity', 0))
-            if qty <= 0: continue
-            
-            # We exit if the ticker is associated with a short-term strategy
-            # or if it was bought today (checking unsettled_positions for a hint)
-            should_close = False
-            for cat in ['live_trading', 'active_testing']:
-                for s in registry.get(cat, []):
-                    if s['name'] in short_term_strats and ticker in s.get('assets', []):
-                        should_close = True
-                        break
-                if should_close: break
-                
-            if should_close:
-                log_engine(f"Closing EOD Position: {ticker} ({qty} units)")
-                # Fetch recent price for logging
-                hist = yf.Ticker(ticker).history(period="1d")
-                price = hist['Close'].iloc[-1] if not hist.empty else 0
-                execute_trade("EOD Stop", ticker, "SELL", price)
-                closed_count += 1
-                
+            try:
+                qty = float(pos.get('quantity', 0))
+            except (TypeError, ValueError):
+                qty = 0.0
+            if qty <= 0:
+                continue
+            if ticker in systematic_symbols:
+                log_engine(f"EOD: keeping {ticker} — held by the multi-day systematic book.")
+                continue
+
+            strat_name = active_map.get(ticker) or symbol_to_intraday.get(ticker)
+            if not strat_name:
+                skipped_unknown.append(ticker)
+                continue
+            if strat_name not in intraday_names:
+                log_engine(f"EOD: keeping {ticker} — {strat_name} is not intraday-only.")
+                continue
+
+            price = _position_price(ticker, pos)
+            if price <= 0:
+                log_engine(f"EOD: no usable price for {ticker}; skipping.", level="warning")
+                continue
+
+            log_engine(f"Closing EOD Position: {ticker} x{qty} ({strat_name}) @ ${price:.2f}")
+            execute_trade(strat_name, ticker, "SELL", price,
+                          target_symbol=ticker, quantity_override=qty)
+            closed_count += 1
+
+        if skipped_unknown:
+            log_engine(f"EOD: left {', '.join(sorted(skipped_unknown))} open — no strategy attribution.",
+                       level="warning")
+
         log_engine(f"EOD Cleanup Complete. Closed {closed_count} positions.")
-        send_quant_alert(f"🌅 *EOD CLEANUP*\nClosed {closed_count} short-term positions.")
-        
+        send_quant_alert(f"🌅 *EOD CLEANUP*\nClosed {closed_count} intraday positions.")
+
     except Exception as e:
         log_engine(f"EOD Close Error: {e}", level="error")
 
@@ -351,8 +766,7 @@ def update_live_tracking_board(strategy_name, ticker, side):
             lines.append(new_entry)
             
         # Write back
-        with open(target_path, 'w', encoding='utf-8') as f:
-            f.writelines(lines)
+        write_text_atomic(target_path, "".join(lines))
         log_engine(f"Board Updated: {strategy_name} -> {ticker} ({side})")
     except Exception as e:
         log_engine(f"Board Update Failed: {e}", level="error")
@@ -395,27 +809,40 @@ def update_portfolio_display(active_positions):
             else:
                 content += "\n\n" + portfolio_table
         
-        with open(target_path, "w", encoding='utf-8') as f:
-            f.write(content)
+        write_text_atomic(target_path, content)
     except Exception as e:
         log_engine(f"Portfolio Display Update Failed: {e}", level="error")
 
-def refresh_strategy_board():
-    """Proactively ensures all strategies in registry are on the board with correct status."""
-    try:
-        if not os.path.exists(REGISTRY_PATH) or not os.path.exists(STRATEGY_BOARD_PATH):
-            return
+_BOARD_REBUILD_STAMP = {"mtime": None, "ts": 0.0}
 
-        with open(REGISTRY_PATH, 'r') as f:
-            registry = json.load(f)
-        
-        # We just want to make sure they exist, so we'll call update_board_signal with "None"
-        # which will refresh the Status column without touching signals.
-        for strat in registry.get("live_trading", []):
-            update_board_signal(strat["name"], "None")
-        for strat in registry.get("active_testing", []):
-            update_board_signal(strat["name"], "None")
-            
+
+def refresh_strategy_board(force=False):
+    """Rebuild the board from the registry when the registry changes.
+
+    `_write_board_signal` can only update rows that already exist, so adding a
+    strategy to the registry used to leave it invisible on the board.  This
+    runs `scripts/rebuild_board.py`, which owns row creation and preserves the
+    live portfolio/signal sections.
+    """
+    try:
+        if not os.path.exists(REGISTRY_PATH):
+            return
+        mtime = os.path.getmtime(REGISTRY_PATH)
+        now = time.time()
+        if not force:
+            if _BOARD_REBUILD_STAMP["mtime"] == mtime:
+                return
+            if now - _BOARD_REBUILD_STAMP["ts"] < 300:
+                return
+        _BOARD_REBUILD_STAMP["mtime"] = mtime
+        _BOARD_REBUILD_STAMP["ts"] = now
+
+        script = os.path.join(DEXTER_ROOT, "scripts", "rebuild_board.py")
+        if not os.path.exists(script):
+            return
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.Popen([sys.executable, script], cwd=DEXTER_ROOT,
+                         creationflags=flags)
     except Exception as e:
         log_engine(f"Board Refresh Failed: {e}", level="error")
 
@@ -438,10 +865,10 @@ def _write_board_signal(strategy_name, latest_signal):
             clean_line = line.replace("**", "")
             if strategy_name.lower() in clean_line.lower() and "|" in line:
                 parts = line.split("|")
-                # Handle both old (5 parts) and new (6 parts) formats for resiliency during transition
+                # Dynamically resolve Status and Latest Signal relative to the table structure
                 if len(parts) >= 6:
-                    status_idx = 4
-                    signal_idx = 5
+                    status_idx = len(parts) - 3
+                    signal_idx = len(parts) - 2
                     new_status = " 🧪 TEST " if is_past_testing_header else " 🚀 LIVE "
                     
                     if latest_signal == "SLEEP":
@@ -482,8 +909,7 @@ def _write_board_signal(strategy_name, latest_signal):
                     break
         
         if updated:
-            with open(target_path, "w", encoding='utf-8') as f:
-                f.writelines(lines)
+            write_text_atomic(target_path, "".join(lines))
     except Exception as e:
         log_engine(f"Board Signal Write failed for {strategy_name}: {e}", level="error")
 
@@ -548,7 +974,7 @@ def get_active_positions(mode="LIVE_MARKET"):
         if mode == "OVERNIGHT" and enable_ibkr:
             port = 5006
             
-        url = f"http://localhost:{port}/positions"
+        url = f"http://127.0.0.1:{port}/positions"
         response = requests.get(url, timeout=15)
         if response.status_code == 200:
             data = response.json()
@@ -570,7 +996,7 @@ def get_active_positions(mode="LIVE_MARKET"):
 def get_settled_cash(port=5005):
     """Fetches settled cash availability from Bridge /cash endpoint."""
     try:
-        url = f"http://localhost:{port}/cash"
+        url = f"http://127.0.0.1:{port}/cash"
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
             data = response.json()
@@ -628,24 +1054,52 @@ def execute_trade(strategy_name, ticker, side, price, timeframe=None, mode="LIVE
     if mode == "OVERNIGHT" and enable_ibkr:
         port = 5006
     else:
+        # Bullish 2x Leveraged Mapping (e.g. BTC/IBIT -> BITU)
+        if side.upper() in ["BUY", "LONG"] and not target_symbol:
+            if ticker in LONG_MAP:
+                target_ticker = LONG_MAP[ticker]
+                log_engine(f"Bullish 2x Leveraged Mapped: {ticker} -> {target_ticker}")
+
+        # Bearish 2x Short Mapping (e.g. BTC/IBIT/BITU -> SBIT)
         if side.upper() in ["SHORT", "BEARISH"] and not target_symbol:
             if ticker in INVERSE_MAP:
                  target_ticker = INVERSE_MAP[ticker]
-                 log_engine(f"Bearish Signal Mapped: {ticker} -> {target_ticker}")
+                 log_engine(f"Bearish 2x Leveraged Mapped: {ticker} -> {target_ticker}")
             else:
                  log_engine(f"🛡️ EXECUTION GUARD: {strategy_name} signaled SHORT for {ticker}, but no Inverse Mapping found and Cash Account cannot short. Aborting.", level="warning")
-                 return
+                 return {"ok": False, "reason": "no_inverse_mapping"}
     
-    # Position sizing: Use override if provided, otherwise $25/$75 cap per trade
+    # Resolve real execution price for mapped targets (e.g. BTC-USD $65000 -> BITU/SBIT)
+    exec_price = price
+    if target_ticker != ticker and (exec_price > 1000 or exec_price <= 0):
+        try:
+            t_hist = yf.Ticker(target_ticker).history(period="1d")
+            if not t_hist.empty:
+                exec_price = float(t_hist['Close'].iloc[-1])
+        except Exception as pe:
+            log_engine(f"Warning: Could not fetch real-time price for mapped {target_ticker}: {pe}", level="warning")
+
+    # Position sizing: Use override if provided, otherwise POSITION_SIZE_USD.
     if quantity_override is not None:
         quantity = quantity_override
     else:
-        quantity = round(POSITION_SIZE_USD / price, 4) if price > 0 else 0
-        if CAUTION_MODE:
+        quantity = round(POSITION_SIZE_USD / exec_price, 4) if exec_price > 0 else 0
+        if CAUTION_MODE and side.upper() in ["BUY", "LONG"] and target_ticker not in INVERSE_BEAR_ETFS:
             quantity = round(quantity * 0.5, 4)
-            log_engine(f"Execution Sizing (CAUTION MODE): {quantity} units")
-    
-    if quantity <= 0: return
+            log_engine(f"Execution Sizing (CAUTION MODE - LONG): {quantity} units")
+
+        if side.upper() in ["BUY", "LONG"]:
+            mult, blocked, reason = quality_verdict(strategy_name)
+            if blocked:
+                log_engine(f"📊 SIGNAL QUALITY: blocked new entry for {strategy_name} — {reason}",
+                           level="warning")
+                return {"ok": False, "reason": "quality_demoted"}
+            if mult != 1.0:
+                quantity = round(quantity * mult, 4)
+                log_engine(f"📊 SIGNAL QUALITY: {strategy_name} sized x{mult} — {reason}")
+
+    if quantity <= 0:
+        return {"ok": False, "reason": "zero_quantity"}
 
     action = "buy"
     is_exit = side.upper() in ["EXIT", "SELL"]
@@ -665,13 +1119,18 @@ def execute_trade(strategy_name, ticker, side, price, timeframe=None, mode="LIVE
     elif side.upper() == "SHORT" and port == 5006:
         action = "sell" 
 
+    # --- 🛡️ CIRCUIT BREAKER GUARD: NEW ENTRY PROTECTION ---
+    if action == "buy" and is_circuit_breaker_active():
+        log_engine(f"🛡️ CIRCUIT BREAKER GUARD: Blocked BUY for {target_ticker}. Daily drawdown threshold exceeded.", level="warning")
+        return {"ok": False, "reason": "circuit_breaker"}
+
     # --- 🛡️ SETTLEMENT GUARD: BUY PROTECTION ---
     if action == "buy":
         settled_cash = get_settled_cash(port)
         notional_req = quantity * price
         if settled_cash < notional_req:
             log_engine(f"🛡️ SETTLEMENT GUARD: Blocked BUY for {target_ticker}. Required ${notional_req:.2f}, Settled Available: ${settled_cash:.2f}.", level="warning")
-            return
+            return {"ok": False, "reason": "insufficient_settled_cash"}
 
     payload = {
         "type": "stock",
@@ -685,13 +1144,13 @@ def execute_trade(strategy_name, ticker, side, price, timeframe=None, mode="LIVE
         payload["outsideRth"] = True
 
     try:
-        url = f"http://localhost:{port}/order"
+        url = f"http://127.0.0.1:{port}/order"
         
         # Proposal 22: Final Notional Guard
         notional_val = quantity * price
         if notional_val < MIN_NOTIONAL_USD:
             log_engine(f"Execution ABORTED: Notional ${notional_val:.2f} is below MIN_NOTIONAL (${MIN_NOTIONAL_USD}) for {ticker}", level="warning")
-            return
+            return {"ok": False, "reason": "below_min_notional"}
 
         resp = requests.post(url, json=payload, timeout=20)
         
@@ -709,7 +1168,7 @@ def execute_trade(strategy_name, ticker, side, price, timeframe=None, mode="LIVE
                 msg = f"Order REJECTED: {ticker} -> {reason}"
                 log_engine(msg, level="error")
                 send_quant_alert(f"⚠️ *ORDER REJECTED*\nAsset: {ticker}\nReason: {reason}")
-                return
+                return {"ok": False, "reason": f"rejected: {reason}"}
 
             # Verification: Check if a position actually exists
             time.sleep(2.5)
@@ -723,12 +1182,19 @@ def execute_trade(strategy_name, ticker, side, price, timeframe=None, mode="LIVE
                     UNSETTLED_POSITIONS[target_ticker] = datetime.now(EST).strftime("%Y-%m-%d")
                     save_unsettled_tracker()
                     update_active_strategy_cache(target_ticker, strategy_name, "buy")
+                    # Task 1: Record Leveraged ETF Entry
+                    if target_ticker in LEVERAGED_BTC_ETFS:
+                        etf_side = "LONG" if target_ticker == "BITU" else "SHORT"
+                        record_etf_entry(target_ticker, exec_price, etf_side, quantity, strategy_name)
 
                 # Remove from Unsettled Tracker on Success Sell
                 if action == "sell":
                     UNSETTLED_POSITIONS.pop(target_ticker, None)
                     save_unsettled_tracker()
                     update_active_strategy_cache(target_ticker, strategy_name, "sell")
+                    # Task 1: Clear Leveraged ETF Entry
+                    if target_ticker in LEVERAGED_BTC_ETFS:
+                        remove_etf_position(target_ticker)
 
                 # --- TELEGRAM ALERT ---
                 market_label = " [IBKR OVERNIGHT]" if port == 5006 else " [ROBINHOOD CASH]"
@@ -738,13 +1204,17 @@ def execute_trade(strategy_name, ticker, side, price, timeframe=None, mode="LIVE
                 msg = f"{type_label}\nAsset: {ticker} (Target: {target_ticker})\nStrategy: {strategy_name}\nPrice: ${price:.2f}"
                 if timeframe: msg += f"\nTimeframe: {timeframe}"
                 send_quant_alert(msg)
-            else:
-                log_engine(f"Phantom Fill Protection (Audit Failed): {ticker} order accepted but position NOT found in audit.", level="warning")
+                return {"ok": True, "qty": quantity, "price": exec_price,
+                        "target": target_ticker, "side": side.upper()}
+            log_engine(f"Phantom Fill Protection (Audit Failed): {ticker} order accepted but position NOT found in audit.", level="warning")
+            return {"ok": False, "reason": "phantom_fill"}
         else:
             error_data = f"Status {resp.status_code}: {resp.text}"
             log_engine(f"Bridge ({port}) Order Rejected: {error_data}", level="error")
+            return {"ok": False, "reason": f"bridge_{resp.status_code}"}
     except Exception as e:
         log_engine(f"Bridge ({port}) Execution Error: {e}", level="error")
+        return {"ok": False, "reason": f"exception: {e}"}
 
 def process_signal_and_execute(name, ticker, sig, price, is_live, can_execute, active_count, active_positions, timeframe=None, signal_time=None, mode="LIVE_MARKET"):
     """Central logic to handle signal transitions and trigger trades."""
@@ -786,6 +1256,7 @@ def process_signal_and_execute(name, ticker, sig, price, is_live, can_execute, a
 
             if (now - signal_time).total_seconds() > stale_threshold and is_live:
                 return f"{ticker}-STALE", active_count
+        
         except Exception as e:
             log_engine(f"Timestamp Filter Error: {e}", level="warning")
 
@@ -813,8 +1284,14 @@ def process_signal_and_execute(name, ticker, sig, price, is_live, can_execute, a
             cooldown_active = True
             # log_engine(f"Cooldown active: {elapsed:.0f}/{cooldown_limit}s for {name}-{ticker}")
     
-    # Check if we hold the asset or its inverse
-    is_held = (ticker in active_positions or (ticker in INVERSE_MAP and INVERSE_MAP[ticker] in active_positions))
+    # Check if we hold the asset, its 2x long target (BITU), or its short target (SBIT)
+    long_target = LONG_MAP.get(ticker, ticker)
+    short_target = INVERSE_MAP.get(ticker, ticker)
+    is_held = (
+        ticker in active_positions or 
+        long_target in active_positions or 
+        (short_target != ticker and short_target in active_positions)
+    )
     
     status_update = None
     if sig in ["BUY", "SELL", "EXIT", "SHORT", "LONG"]:
@@ -833,90 +1310,338 @@ def process_signal_and_execute(name, ticker, sig, price, is_live, can_execute, a
             status_update = f"{ticker}-{sig} @ {price:.2f}"
     
             if is_live and can_execute:
+                # --- RISK ENFORCEMENT: CIRCUIT BREAKER & CAUTION MODE ---
+                if (sig in ["BUY", "LONG", "SHORT"]) and not is_held:
+                    if is_circuit_breaker_active():
+                        log_engine(f"🛡️ CIRCUIT BREAKER ACTIVE: Blocking NEW entry for {ticker} ({name}) due to daily drawdown protection.", level="warning")
+                        return f"{ticker}-CIRCUIT_BREAKER", active_count
+                    # Volatility Guardrail: Only block LONG trades during CAUTION_MODE. Short trades thrive on volatility.
+                    if CAUTION_MODE and (sig in ["BUY", "LONG"]) and ticker not in INVERSE_BEAR_ETFS:
+                        log_engine(f"⚠️ CAUTION MODE ACTIVE: Blocking NEW LONG entry for {ticker} ({name}) due to elevated volatility.", level="warning")
+                        return f"{ticker}-CAUTION", active_count
+
                 if (sig == "BUY" or sig == "LONG") and not is_held:
                     if active_count < MAX_CONCURRENT_TRADES:
-                        execute_trade(name, ticker, sig, price, timeframe=timeframe, mode=mode)
+                        # Map to 2x Long (e.g. BITU) if applicable
+                        target = LONG_MAP.get(ticker, ticker)
+                        execute_trade(name, ticker, sig, price, timeframe=timeframe, mode=mode, target_symbol=target)
                         active_count += 1
-                        active_positions[ticker] = 1.0
+                        active_positions[target] = 1.0
                         LAST_TRADE_TIME[cache_key] = now_est
                 elif (sig == "EXIT" or sig == "SELL") and is_held:
-                    # Determine if we are exiting the base asset or an inverse ETF
-                    target = ticker
-                    if ticker in INVERSE_MAP and INVERSE_MAP[ticker] in active_positions:
-                        target = INVERSE_MAP[ticker]
+                    # Determine which symbol we are actually holding (base, 2x long target, or 2x short target)
+                    target = None
+                    if long_target in active_positions:
+                        target = long_target
+                    elif short_target != ticker and short_target in active_positions:
+                        target = short_target
+                    elif ticker in active_positions:
+                        target = ticker
                     
-                    execute_trade(name, ticker, sig, price, timeframe=timeframe, mode=mode, target_symbol=target)
-                    if ticker in active_positions: del active_positions[ticker]
-                    if ticker in INVERSE_MAP and INVERSE_MAP[ticker] in active_positions: 
-                        del active_positions[INVERSE_MAP[ticker]]
-                    active_count -= 1
-                    LAST_TRADE_TIME[cache_key] = now_est
+                    if target:
+                        execute_trade(name, ticker, sig, price, timeframe=timeframe, mode=mode, target_symbol=target)
+                        if target in active_positions: del active_positions[target]
+                        active_count -= 1
+                        LAST_TRADE_TIME[cache_key] = now_est
                 elif sig == "SHORT" and not is_held:
                     if active_count < MAX_CONCURRENT_TRADES:
                         # Before going short, ensure no long exists (Reversal Protection)
-                        if ticker in active_positions:
-                             execute_trade(name, ticker, "EXIT", price, timeframe=timeframe, mode=mode, target_symbol=ticker)
-                             del active_positions[ticker]
+                        long_held = long_target if long_target in active_positions else (ticker if ticker in active_positions else None)
+                        if long_held:
+                             execute_trade(name, ticker, "EXIT", price, timeframe=timeframe, mode=mode, target_symbol=long_held)
+                             del active_positions[long_held]
                              active_count -= 1
                         
-                        execute_trade(name, ticker, "SHORT", price, timeframe=timeframe, mode=mode)
-                        active_count += 1
+                        # Map to 2x Short (e.g. SBIT) if applicable
                         target = INVERSE_MAP.get(ticker, ticker)
+                        execute_trade(name, ticker, "SHORT", price, timeframe=timeframe, mode=mode, target_symbol=target)
+                        active_count += 1
                         active_positions[target] = 1.0
                         LAST_TRADE_TIME[cache_key] = now_est
                 elif (sig == "BUY" or sig == "LONG") and is_held:
-                    # REVERSAL CASE 1: Hold Inverse -> Want LONG
-                    target = INVERSE_MAP.get(ticker, ticker)
-                    if target in active_positions and target != ticker:
-                         log_engine(f"Reversing SHORT to LONG for {ticker}...")
-                         execute_trade(name, ticker, "EXIT", price, timeframe=timeframe, mode=mode, target_symbol=target)
-                         del active_positions[target]
+                    # REVERSAL CASE 1: Hold Short/Inverse (e.g. SBIT) -> Want LONG (BITU)
+                    if short_target in active_positions and short_target != ticker:
+                         log_engine(f"Reversing SHORT to LONG for {ticker} (Closing {short_target})...")
+                         execute_trade(name, ticker, "EXIT", price, timeframe=timeframe, mode=mode, target_symbol=short_target)
+                         del active_positions[short_target]
                          active_count -= 1
                          LAST_TRADE_TIME[cache_key] = now_est
-                         # Re-entry will happen next cycle
+                         # Re-entry into BITU will happen next cycle
                 
                 elif sig == "SHORT" and is_held:
-                    # REVERSAL CASE 2: Hold LONG -> Want SHORT
-                    if ticker in active_positions:
-                         log_engine(f"Reversing LONG to SHORT for {ticker}...")
-                         execute_trade(name, ticker, "EXIT", price, timeframe=timeframe, mode=mode, target_symbol=ticker)
-                         del active_positions[ticker]
+                    # REVERSAL CASE 2: Hold LONG (e.g. BITU) -> Want SHORT (SBIT)
+                    long_held = long_target if long_target in active_positions else (ticker if ticker in active_positions else None)
+                    if long_held:
+                         log_engine(f"Reversing LONG to SHORT for {ticker} (Closing {long_held})...")
+                         execute_trade(name, ticker, "EXIT", price, timeframe=timeframe, mode=mode, target_symbol=long_held)
+                         del active_positions[long_held]
                          active_count -= 1
                          LAST_TRADE_TIME[cache_key] = now_est
-                         # Inverse entry will happen next cycle or can be forced below
+                         # Inverse entry into SBIT will happen next cycle
                 
     return status_update, active_count
+
+
+# === SYSTEMATIC DAILY BOOK =================================================
+# These strategies keep their own position book keyed by (strategy, ticker),
+# so two strategies may hold the same symbol without one's EXIT closing the
+# other's position.  They deliberately bypass the global active_positions /
+# is_held logic above.
+
+DUAL_MOMENTUM_SECTORS = ["XLK", "XLF", "XLV", "XLE", "XLI", "XLP",
+                         "XLU", "XLY", "XLB", "XLRE", "XLC"]
+PEAD_CANDIDATES_FILE = os.path.join(DEXTER_ROOT, "cache", "pead_candidates.json")
+
+
+def _read_market_context():
+    """Small, tolerant read of market_context.json (VIX only)."""
+    try:
+        with open(MARKET_CONTEXT_FILE, 'r') as f:
+            ctx = json.load(f)
+        return ctx.get('vix', {}).get('value')
+    except Exception:
+        return None
+
+
+def _load_pead_candidates():
+    try:
+        with open(PEAD_CANDIDATES_FILE, 'r') as f:
+            data = json.load(f)
+        return data.get("candidates", {}) if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _slim_close(df):
+    """Reduce a cached frame to Close only — keeps pickled IPC payloads small."""
+    if df is None or df.empty:
+        return None
+    try:
+        return df[["Close"]].copy()
+    except Exception:
+        return None
+
+
+def _build_systematic_context(strat_type):
+    """Picklable context for the systematic workers (VIX, sector closes, PEAD)."""
+    ctx = {
+        "vix": _read_market_context(),
+        "today": datetime.now(EST).strftime("%Y-%m-%d"),
+    }
+    if strat_type == sysd.SIG_TYPE_DUAL_MOM:
+        sectors = {}
+        for sym in DUAL_MOMENTUM_SECTORS + ["SH"]:
+            slim = _slim_close(PERSISTENT_DATA_CACHE.get((sym, "1d")))
+            if slim is not None:
+                sectors[sym] = slim
+        ctx["sectors"] = sectors
+        ctx["spy_bytes"] = pickle.dumps(_slim_close(PERSISTENT_DATA_CACHE.get(("SPY", "1d"))))
+    if strat_type == sysd.SIG_TYPE_PEAD:
+        ctx["pead_candidates"] = _load_pead_candidates()
+    return ctx
+
+
+def _systematic_strategy_names():
+    """Registry names that route through the systematic book."""
+    names = set()
+    try:
+        with open(REGISTRY_PATH, 'r') as f:
+            registry = json.load(f)
+        for cat in ['live_trading', 'active_testing']:
+            for s in registry.get(cat, []):
+                if _get_strat_type(s['name']) in sysd.SYSTEMATIC_TYPES:
+                    names.add(s['name'])
+    except Exception:
+        pass
+    return names
+
+
+def _process_systematic_signal(name, ticker, sig, price, is_live, can_execute,
+                               meta=None, mode="LIVE_MARKET"):
+    """Handle BUY/EXIT for a systematic daily strategy. Returns a board status."""
+    meta = meta or {}
+    key = position_book.book_key(name, ticker)
+    book = position_book.load_book()
+    held = book.get(key)
+
+    cache_key = (name, ticker)
+    last_sig = SIGNAL_CACHE.get(cache_key)
+
+    if sig in ("SHORT", "SELL") and not held:
+        return None
+    if sig in ("BUY", "LONG") and held:
+        # Already positioned; keep the board honest but do not re-enter.
+        if last_sig != "BUY":
+            SIGNAL_CACHE[cache_key] = "BUY"
+            return f"{ticker}-HOLD"
+        return None
+    if sig == "EXIT" and not held:
+        return None
+
+    if not (is_live and can_execute):
+        if last_sig != sig:
+            SIGNAL_CACHE[cache_key] = sig
+            log_event(name, ticker, sig, price, is_live=is_live)
+            return f"{ticker}-{sig} @ {price:.2f} (paper)"
+        return None
+
+    if sig in ("BUY", "LONG"):
+        # NOTE: no CAUTION_MODE veto here.  The VIX Panic strategy exists
+        # precisely to buy elevated-volatility dips, so the global guard would
+        # disable the edge it is meant to capture.
+        res = execute_trade(name, ticker, "BUY", price, timeframe="1d",
+                            mode=mode, target_symbol=ticker)
+        if not res or not res.get("ok"):
+            log_engine(f"Systematic entry blocked for {name}-{ticker}: {res}", level="warning")
+            return f"{ticker}-BLOCKED"
+        position_book.record_entry(
+            name, ticker, res.get("qty", 0), res.get("price", price),
+            stop_price=meta.get("stop_price"),
+            target_price=meta.get("target_price"),
+            max_hold_days=meta.get("max_hold_days"),
+            note=meta.get("note", ""),
+        )
+        SIGNAL_CACHE[cache_key] = "BUY"
+        log_event(name, ticker, sig, price, is_live=is_live)
+        return f"{ticker}-ENTRY @ {price:.2f}"
+
+    if sig in ("EXIT", "SELL", "SHORT"):
+        qty = float(held.get("qty", 0) or 0)
+        if qty <= 0:
+            position_book.remove_entry(name, ticker)
+            return None
+        res = execute_trade(name, ticker, "SELL", price, timeframe="1d",
+                            mode=mode, target_symbol=ticker, quantity_override=qty)
+        if res and res.get("ok"):
+            position_book.remove_entry(name, ticker)
+            SIGNAL_CACHE[cache_key] = sig
+            log_event(name, ticker, sig, price, is_live=is_live)
+            return f"{ticker}-EXIT @ {price:.2f}"
+        log_engine(f"Systematic exit failed for {name}-{ticker}: {res}", level="warning")
+        return f"{ticker}-EXIT_FAILED"
+
+    return None
+
+
+def _current_marks(mode="LIVE_MARKET"):
+    """Symbol -> current price from the broker, falling back to yfinance."""
+    marks = {}
+    try:
+        resp = requests.get("http://127.0.0.1:5005/positions", timeout=10)
+        if resp.status_code == 200:
+            for sym, pos in resp.json().get("stocks", {}).items():
+                try:
+                    px = float(pos.get("price") or 0)
+                except (TypeError, ValueError):
+                    px = 0.0
+                if px > 0:
+                    marks[sym] = px
+    except Exception:
+        pass
+    return marks
+
+
+def evaluate_systematic_exits(mode="LIVE_MARKET"):
+    """Check every systematic position against its stop/target/time rule."""
+    book = position_book.load_book()
+    if not book:
+        return 0
+
+    marks = _current_marks(mode)
+    closed = 0
+    for key, rec in list(book.items()):
+        strategy = rec.get("strategy")
+        ticker = rec.get("ticker")
+        if not strategy or not ticker:
+            continue
+
+        price = marks.get(ticker)
+        if not price:
+            price = _position_price(ticker, {})
+        if not price:
+            continue
+
+        should_exit, reason = position_book.decide_exit(rec, price)
+        if not should_exit:
+            continue
+
+        qty = float(rec.get("qty", 0) or 0)
+        log_engine(f"🚨 SYSTEMATIC EXIT: {strategy} {ticker} — {reason}")
+        res = execute_trade(strategy, ticker, "SELL", price, timeframe="1d",
+                            mode=mode, target_symbol=ticker, quantity_override=qty)
+        if res and res.get("ok"):
+            position_book.remove_entry(strategy, ticker)
+            closed += 1
+            send_quant_alert(
+                f"🏁 *SYSTEMATIC EXIT*\nStrategy: {strategy}\nAsset: {ticker}\n"
+                f"Reason: {reason}\nPrice: ${price:.2f}\nQty: {qty}"
+            )
+        else:
+            log_engine(f"Systematic exit failed for {strategy}-{ticker}: {res}", level="warning")
+
+    if closed:
+        log_engine(f"Systematic exit sweep closed {closed} position(s).")
+    return closed
 
 # === PROPOSAL 5: MULTIPROCESSING HELPERS (module-level for pickling) ===
 
 _STRAT_INTERVAL_MAP = {
-    'smc':             '1h',
-    'triple_rsi':      '1d',
-    'noon_curve':      '5m',
-    'initial_balance': '5m',
-    'london':          '5m',
-    'po3':             '5m',
-    'ny_orb':          '1m',
-    'wickless':        '1h',
-    'db_v3_elite':     '2m',
-    'matt_rapid':      '2m',
-    'macd':            '1h',
-    'gemini_velocity': '15m',
-    'volcanix':        '5m',
-    'standard_quant':  '1h',
-    'big_d':           '5m',
-    'little_d':        '1h',
-    'strategy_os':     '1d',
+    'apex':                '1h',
+    'apex_short_etf':      '1h',
+    's_series':            '1d',
+    'btc_liquidity_sweep': '15m',
+    'btc_po3':             '5m',
+    'btc_rsi_reversion':   '1h',
+    'btc_tech_level_ema':  '1h',
+    'btc_sfp':             '1h',
+    'smc':                 '1h',
+    'triple_rsi':          '1d',
+    'noon_curve':          '5m',
+    'initial_balance':     '5m',
+    'london':              '5m',
+    'po3':                 '5m',
+    'ny_orb':              '1m',
+    'wickless':            '1h',
+    'db_v3_elite':         '2m',
+    'matt_rapid':          '2m',
+    'macd':                '1h',
+    'gemini_velocity':     '15m',
+    'volcanix':            '5m',
+    'standard_quant':      '1h',
+    'big_d':               '5m',
+    'little_d':            '1h',
+    'strategy_os':         '1d',
+    'sys_ibs3':            '1d',
+    'sys_vix_rsi2':        '1d',
+    'sys_turn_of_month':   '1d',
+    'sys_dual_momentum':   '1d',
+    'sys_pead':            '1d',
 }
 
 def _get_strat_type(name: str):
     """Map a strategy registry name to its internal strat_type key."""
     n = name.lower()
+    # Systematic daily book — checked first so no legacy substring rule can
+    # capture these names.
+    if 'ibs-3' in n or 'ibs3' in n or 'index dip' in n: return 'sys_ibs3'
+    if 'vix panic' in n: return 'sys_vix_rsi2'
+    if 'turn-of-month' in n or 'turn of month' in n: return 'sys_turn_of_month'
+    if 'dual momentum' in n or 'sector rotation' in n: return 'sys_dual_momentum'
+    if 'pead' in n or 'earnings gap drift' in n: return 'sys_pead'
+    if 'apex bearish' in n or 'short etf bounce' in n: return 'apex_short_etf'
+    if 'apex' in n or 'pivot bounce' in n or 'pivot' in n: return 'apex'
+    if any(s in n for s in ['price retreat', 'turnaround tuesday', 'low close ibs', 'demarker', 'high of 10 days', 's1', 's2', 's3', 's4', 's5']): return 's_series'
+    if 'liquidity sweep' in n: return 'btc_liquidity_sweep'
+    if 'power of 3' in n and 'btc' in n: return 'btc_po3'
+    if 'rsi reversion' in n: return 'btc_rsi_reversion'
+    if 'tech level' in n or 'ema touch' in n: return 'btc_tech_level_ema'
+    if 'sfp' in n or 'swing failure' in n: return 'btc_sfp'
     if 'smc' in n:             return 'smc'
     if 'triple rsi' in n:      return 'triple_rsi'
     if 'noon-curve' in n:      return 'noon_curve'
     if 'initial balance' in n: return 'initial_balance'
-    if 'london' in n:          return 'london'
+    if 'bigd' in n or 'big d' in n: return 'big_d'
+    if 'littled' in n or 'little d' in n: return 'little_d'
     if 'po3' in n:             return 'po3'
     if 'ny orb' in n:          return 'ny_orb'
     if 'wickless' in n:        return 'wickless'
@@ -931,14 +1656,11 @@ def _get_strat_type(name: str):
     if 'heikin ashi' in n or 'ha' in n: return 'heikin_ashi'
     if 'gemini velocity' in n: return 'gemini_velocity'
     if 'volcanix' in n:        return 'volcanix'
-    if any(s in n for s in ['s1', 's2', 's3', 's4', 's5', 'retreat', 'tuesday', 'low close', 'demarker', 'high of 10', 'nova']): return 'standard_quant'
+    if 'standard_quant' in n:  return 'standard_quant'
     if 'nasdaq-day' in n:      return 'nasdaq_day'
     if 'trinity' in n:         return 'trinity'
     if 'dynamic' in n:         return 'dynamic'
-    if 'bigd' in n or 'big d' in n: return 'big_d'
-    if 'littled' in n or 'little d' in n: return 'little_d'
-    if 'apex' in n or 'pivot' in n: return 'standard_quant'
-    if 'strategy os' in n:       return 'strategy_os'
+    if 'strategy os' in n:     return 'strategy_os'
     return None
 
 def compute_strategy_signal(task: dict) -> dict:
@@ -958,14 +1680,19 @@ def compute_strategy_signal(task: dict) -> dict:
     strat_type = task.get('strat_type')
     is_live    = task.get('is_live', False)
     result_base = {'name': name, 'ticker': ticker, 'is_live': is_live,
-                   'sig': None, 'price': 0.0, 'tf': None, 'sig_time': None}
+                   'strat_type': strat_type,
+                   'sig': None, 'price': 0.0, 'tf': None, 'sig_time': None,
+                   'stop_price': None, 'target_price': None,
+                   'max_hold_days': None, 'note': ''}
     try:
         # Load data (for all non-multi-asset strategies)
         df = _pickle.loads(task['data_bytes']) if task.get('data_bytes') else None
-        
+
         # --- ANTI-FLICKER BAR TRUNCATION (Proposal 12) ---
         # Trade on CLOSED bars only. This eliminates developing bar noise/spam.
-        if df is not None and len(df) > 5:
+        # `live_bar` is set for daily strategies evaluated in the 15:45-15:59
+        # close window, where today's near-final bar IS the signal bar.
+        if df is not None and len(df) > 5 and not task.get('live_bar'):
              df = df.iloc[:-1]
         
         # --- TICKER VALIDATION CHECK (Proposal 21: Data Integrity Guard) ---
@@ -1231,8 +1958,231 @@ def compute_strategy_signal(task: dict) -> dict:
                     sig_label = "BUY" if last_sig == 1 else ("SELL" if last_sig == -1 else None)
                     return {**result_base, 'sig': sig_label, 'price': signals['Close'].iloc[-1], 'tf': '1h', 'sig_time': signals.index[-1]}
 
+        elif strat_type == 'apex_short_etf':
+            # Apex Bearish (Short ETF Bounce) — Long-Only S1/S2 Bounce on Inverse ETFs, Exit on PP/R1
+            daily_df = _pickle.loads(task['daily_bytes']) if task.get('daily_bytes') else None
+            if df is not None and not df.empty and len(df) >= 20 and daily_df is not None and len(daily_df) >= 3:
+                import numpy as np
+                prev_d = daily_df.iloc[-2] if len(daily_df) >= 2 else daily_df.iloc[-1]
+                pp = (float(prev_d['High']) + float(prev_d['Low']) + float(prev_d['Close'])) / 3.0
+                r1 = 2 * pp - float(prev_d['Low'])
+                s1 = 2 * pp - float(prev_d['High'])
+                s2 = pp - (float(prev_d['High']) - float(prev_d['Low']))
+
+                delta = df['Close'].diff()
+                gain = delta.where(delta > 0, 0).ewm(alpha=1/14, adjust=False).mean()
+                loss = (-delta.where(delta < 0, 0)).ewm(alpha=1/14, adjust=False).mean()
+                rsi_s = 100 - (100 / (1 + (gain / (loss + 1e-9))))
+                rsi_val = float(rsi_s.iloc[-1])
+
+                tr = pd.concat([
+                    df['High'] - df['Low'],
+                    (df['High'] - df['Close'].shift()).abs(),
+                    (df['Low'] - df['Close'].shift()).abs()
+                ], axis=1).max(axis=1)
+                atr_val = float(tr.rolling(14).mean().iloc[-1])
+                close_val = float(df['Close'].iloc[-1])
+
+                sig = None
+                if (abs(close_val - s1) <= 0.5 * atr_val and close_val > s1 and rsi_val < 45) or (abs(close_val - s2) <= 0.5 * atr_val and close_val > s2 and rsi_val < 45):
+                    sig = "BUY"
+                elif close_val >= pp or (abs(close_val - r1) <= 0.5 * atr_val and close_val < r1 and rsi_val > 55):
+                    sig = "EXIT"
+
+                if sig:
+                    return {**result_base, 'sig': sig, 'price': close_val, 'tf': '1h', 'sig_time': df.index[-1]}
+
+        elif strat_type == 'apex':
+            # Apex Pivot + RSI Bounce (1h timeframe with Daily Pivots)
+            daily_df = _pickle.loads(task['daily_bytes']) if task.get('daily_bytes') else None
+            if df is not None and not df.empty and len(df) >= 20 and daily_df is not None and len(daily_df) >= 3:
+                import numpy as np
+                prev_d = daily_df.iloc[-2] if len(daily_df) >= 2 else daily_df.iloc[-1]
+                pp = (float(prev_d['High']) + float(prev_d['Low']) + float(prev_d['Close'])) / 3.0
+                r1 = 2 * pp - float(prev_d['Low'])
+                s1 = 2 * pp - float(prev_d['High'])
+                
+                delta = df['Close'].diff()
+                gain = delta.where(delta > 0, 0).ewm(alpha=1/14, adjust=False).mean()
+                loss = (-delta.where(delta < 0, 0)).ewm(alpha=1/14, adjust=False).mean()
+                rsi_s = 100 - (100 / (1 + (gain / (loss + 1e-9))))
+                rsi_val = float(rsi_s.iloc[-1])
+                
+                tr = pd.concat([
+                    df['High'] - df['Low'],
+                    (df['High'] - df['Close'].shift()).abs(),
+                    (df['Low'] - df['Close'].shift()).abs()
+                ], axis=1).max(axis=1)
+                atr_val = float(tr.rolling(14).mean().iloc[-1])
+                close_val = float(df['Close'].iloc[-1])
+                
+                sig = None
+                if abs(close_val - s1) <= 0.5 * atr_val and close_val > s1 and rsi_val < 45:
+                    sig = "BUY"
+                elif abs(close_val - r1) <= 0.5 * atr_val and close_val < r1 and rsi_val > 55:
+                    sig = "SHORT"
+                
+                if sig:
+                    return {**result_base, 'sig': sig, 'price': close_val, 'tf': '1h', 'sig_time': df.index[-1]}
+
+        elif strat_type == 's_series':
+            # S1-S5 Daily Mean Reversion on SPY / QQQ
+            if df is not None and len(df) >= 25:
+                import numpy as np
+                close = df['Close']
+                high = df['High']
+                low = df['Low']
+                ibs = (close - low) / ((high - low) + 1e-9)
+                prev_high = high.shift(1)
+                
+                c_val = float(close.iloc[-1])
+                ibs_val = float(ibs.iloc[-1])
+                prev_h_val = float(prev_high.iloc[-1])
+                
+                sig = None
+                name_l = name.lower()
+                if 'price retreat' in name_l or 's1' in name_l:
+                    hl_range = high - low
+                    avg_hl = float(hl_range.rolling(25).mean().iloc[-1])
+                    roll_high = float(high.rolling(10).max().iloc[-1])
+                    if c_val < (roll_high - avg_hl) and ibs_val < 0.3:
+                        sig = "BUY"
+                elif 'turnaround' in name_l or 's2' in name_l:
+                    dow = df.index[-1].dayofweek
+                    if dow == 0 and c_val < float(close.iloc[-2]) and float(close.iloc[-2]) < float(close.iloc[-3]):
+                        sig = "BUY"
+                elif 'low close' in name_l or 's3' in name_l:
+                    lowest_5 = float(low.shift(1).rolling(5).min().iloc[-1])
+                    if c_val < lowest_5 and ibs_val < 0.25:
+                        sig = "BUY"
+                elif 'demarker' in name_l or 's4' in name_l:
+                    demax = np.where(high > prev_high, high - prev_high, 0.0)
+                    demin = np.where(low.shift(1) > low, low.shift(1) - low, 0.0)
+                    sma_demax = float(pd.Series(demax, index=df.index).rolling(5).mean().iloc[-1])
+                    sma_demin = float(pd.Series(demin, index=df.index).rolling(5).mean().iloc[-1])
+                    demarker = 100 * (sma_demax / (sma_demax + sma_demin + 1e-9))
+                    if demarker < 10:
+                        sig = "BUY"
+                elif 'high of 10' in name_l or 's5' in name_l:
+                    highest_10 = float(high.shift(1).rolling(10).max().iloc[-1])
+                    if float(high.iloc[-1]) > highest_10 and ibs_val < 0.15:
+                        sig = "BUY"
+                
+                # Exit condition: Close > Previous Day High
+                if c_val > prev_h_val and sig is None:
+                    sig = "EXIT"
+                
+                # Inverse Short Extension: Overbought hedge into SH / PSQ
+                if sig is None and ibs_val > 0.85:
+                    sig = "SHORT"
+                
+                if sig:
+                    return {**result_base, 'sig': sig, 'price': c_val, 'tf': '1d', 'sig_time': df.index[-1]}
+
+        elif strat_type in ['btc_liquidity_sweep', 'btc_po3', 'btc_rsi_reversion', 'btc_tech_level_ema', 'btc_sfp']:
+            # Bitcoin Leveraged ETF Strategies (BITU / SBIT)
+            if df is not None and len(df) >= 20:
+                close = df['Close']
+                high = df['High']
+                low = df['Low']
+                open_p = df['Open']
+                vol = df['Volume']
+                
+                ema20 = close.ewm(span=20, adjust=False).mean()
+                ema50 = close.ewm(span=50, adjust=False).mean()
+                vol_ma = vol.rolling(20).mean()
+                vol_surge = (float(vol.iloc[-1]) > float(vol_ma.iloc[-1]) * 1.1) if not vol_ma.empty else True
+                
+                c_val = float(close.iloc[-1])
+                c_prev = float(close.iloc[-2])
+                sig = None
+                
+                if strat_type == 'btc_liquidity_sweep':
+                    sw_h = float(high.iloc[-16:-1].max())
+                    sw_l = float(low.iloc[-16:-1].min())
+                    if float(low.iloc[-1]) < sw_l and c_val > sw_l:
+                        sig = "BUY"
+                    elif float(high.iloc[-1]) > sw_h and c_val < sw_h:
+                        sig = "SHORT"
+                elif strat_type == 'btc_po3':
+                    if c_prev < float(ema20.iloc[-2]) and c_val > float(ema20.iloc[-1]) and c_val > float(ema50.iloc[-1]):
+                        sig = "BUY"
+                    elif c_prev > float(ema20.iloc[-2]) and c_val < float(ema20.iloc[-1]) and c_val < float(ema50.iloc[-1]):
+                        sig = "SHORT"
+                elif strat_type == 'btc_rsi_reversion':
+                    delta = close.diff()
+                    gain = delta.where(delta > 0, 0).ewm(alpha=1/14, adjust=False).mean()
+                    loss = (-delta.where(delta < 0, 0)).ewm(alpha=1/14, adjust=False).mean()
+                    rsi_series = 100 - (100 / (1 + (gain / (loss + 1e-9))))
+                    rsi = float(rsi_series.iloc[-1])
+                    if rsi < 36 and c_val > float(open_p.iloc[-1]) and c_prev < float(open_p.iloc[-2]):
+                        sig = "BUY"
+                    elif rsi > 64 and c_val < float(open_p.iloc[-1]) and c_prev > float(open_p.iloc[-2]):
+                        sig = "SHORT"
+                elif strat_type == 'btc_tech_level_ema':
+                    if float(low.iloc[-1]) <= float(ema20.iloc[-1]) and c_val > float(ema20.iloc[-1]) and c_val > float(ema50.iloc[-1]) and vol_surge:
+                        sig = "BUY"
+                    elif float(high.iloc[-1]) >= float(ema20.iloc[-1]) and c_val < float(ema20.iloc[-1]) and c_val < float(ema50.iloc[-1]) and vol_surge:
+                        sig = "SHORT"
+                elif strat_type == 'btc_sfp':
+                    sw_h = float(high.iloc[-11:-1].max())
+                    sw_l = float(low.iloc[-11:-1].min())
+                    if float(low.iloc[-1]) < sw_l and c_val > sw_l and vol_surge:
+                        sig = "BUY"
+                    elif float(high.iloc[-1]) > sw_h and c_val < sw_h and vol_surge:
+                        sig = "SHORT"
+                
+                if sig:
+                    return {**result_base, 'sig': sig, 'price': c_val, 'tf': _STRAT_INTERVAL_MAP.get(strat_type, '1h'), 'sig_time': df.index[-1]}
+
+        elif strat_type in sysd.SYSTEMATIC_TYPES:
+            if df is None or df.empty:
+                return result_base
+
+            ctx_raw = {}
+            if task.get('context_bytes'):
+                try:
+                    ctx_raw = _pickle.loads(task['context_bytes'])
+                except Exception:
+                    ctx_raw = {}
+
+            sectors = {}
+            for sym, blob in (ctx_raw.get('sectors') or {}).items():
+                try:
+                    sectors[sym] = _pickle.loads(blob) if isinstance(blob, (bytes, bytearray)) else blob
+                except Exception:
+                    continue
+            spy_df = None
+            if ctx_raw.get('spy_bytes'):
+                try:
+                    spy_df = _pickle.loads(ctx_raw['spy_bytes'])
+                except Exception:
+                    spy_df = None
+
+            today = datetime.now(EST).date()
+            ctx = {
+                'vix': ctx_raw.get('vix'),
+                'today': today.strftime('%Y-%m-%d'),
+                'sectors': sectors,
+                'spy_df': spy_df,
+                'pead_candidates': ctx_raw.get('pead_candidates') or {},
+            }
+            out = sysd.evaluate(strat_type, ticker, name, df, ctx)
+
+            # Price-triggered entries must not act on a stale bar.  Calendar-
+            # driven strategies (turn-of-month, dual momentum) derive their
+            # trigger from the bars themselves, so a one-day data lag is safe.
+            if (out and out.get('sig') in ('BUY', 'LONG')
+                    and strat_type in (sysd.SIG_TYPE_IBS3, sysd.SIG_TYPE_VIX_RSI2,
+                                       sysd.SIG_TYPE_PEAD)
+                    and df.index[-1].date() != today):
+                return {**result_base, 'note': 'daily bar stale — entry suppressed'}
+
+            if out:
+                return {**result_base, **out}
+            return result_base
+
         elif strat_type == 'standard_quant':
-            # Handle standard quant entry strategies (S1-S5, Nova, Apex)
             return result_base
 
 
@@ -1251,6 +2201,22 @@ def run_alpha_autotrader(mode="LIVE_MARKET"):
 
     # --- Proposal 9: Start async board renderer thread (once per process) ---
     _start_board_thread()
+
+    # Ensure every registry strategy has a row (non-blocking)
+    refresh_strategy_board()
+
+    # --- Evaluate Leveraged ETF Bracket Exits (2% SL / 4% TP / Max Hold) & Circuit Breaker ---
+    try:
+        evaluate_etf_exits_and_circuit_breaker(mode=mode)
+    except Exception as _cb_err:
+        log_engine(f"Error evaluating ETF exits / circuit breaker: {_cb_err}", level="error")
+
+    # Systematic book stops/targets/time exits (no-op when the book is empty)
+    if mode == "LIVE_MARKET":
+        try:
+            evaluate_systematic_exits(mode=mode)
+        except Exception as _sys_err:
+            log_engine(f"Error evaluating systematic exits: {_sys_err}", level="error")
 
     # --- Proposal 6: Load warm cache if fresh (< 90 min old) ---
     _warm_cache_maxage = 5400
@@ -1352,9 +2318,36 @@ def run_alpha_autotrader(mode="LIVE_MARKET"):
     for category in ['live_trading', 'active_testing']:
         for strat in registry.get(category, []):
             name, assets = strat['name'], strat['assets']
+            strat_kind = _get_strat_type(name)
             for ticker in assets:
                 t, i, p = ticker, "1h", "5d" # Default
-                if "SMC" in name: t, i, p = ticker, "1h", "10d"
+                if strat_kind in sysd.SYSTEMATIC_TYPES:
+                    # Daily OHLCV. PEAD only needs ~30 sessions; the rest need
+                    # a 200SMA plus the 126-day momentum window.
+                    lookback = "6mo" if strat_kind == sysd.SIG_TYPE_PEAD else "2y"
+                    key = (ticker, "1d")
+                    data_tasks[key] = max(data_tasks.get(key, "1d"), lookback,
+                                          key=parse_period_to_days)
+                    if strat_kind == sysd.SIG_TYPE_DUAL_MOM:
+                        key_spy = ("SPY", "1d")
+                        data_tasks[key_spy] = max(data_tasks.get(key_spy, "1d"), "2y",
+                                                  key=parse_period_to_days)
+                    continue
+                if "Apex" in name or "Pivot" in name:
+                    for ni, np_ in [("1h", "30d"), ("1d", "60d")]:
+                        key = (ticker, ni)
+                        data_tasks[key] = max(data_tasks.get(key, "1d"), np_, key=parse_period_to_days)
+                    continue
+                elif any(s in name for s in ["Price Retreat", "Turnaround Tuesday", "Low Close IBS", "DeMarker", "High of 10 Days"]):
+                    key = (ticker, "1d")
+                    data_tasks[key] = max(data_tasks.get(key, "1d"), "60d", key=parse_period_to_days)
+                    continue
+                elif "Liquidity Sweep" in name: t, i, p = ticker, "15m", "15d"
+                elif "Power of 3" in name: t, i, p = ticker, "5m", "10d"
+                elif "RSI Reversion" in name: t, i, p = ticker, "1h", "30d"
+                elif "Tech Level" in name or "EMA Touch" in name: t, i, p = ticker, "1h", "30d"
+                elif "SFP" in name or "Swing Failure" in name: t, i, p = ticker, "1h", "30d"
+                elif "SMC" in name: t, i, p = ticker, "1h", "10d"
                 elif "Triple RSI" in name: t, i, p = ticker, "1d", "2y"
                 elif "Noon-Curve" in name: 
                     for nt in [ticker, "SPY", "QQQ"]:
@@ -1366,7 +2359,7 @@ def run_alpha_autotrader(mode="LIVE_MARKET"):
                 elif "PO3" in name: t, i, p = ticker, "5m", "5d"
                 elif "NY ORB" in name: t, i, p = ticker, "1m", "5d"
                 elif "Wickless" in name: t, i, p = ticker, "1h", "5d"
-                elif "MACD 200" in name: t, i, p = ticker, "1h", "100d" # SMA 200 needs 200 bars, but 100h is ~2 weeks. We might need more.
+                elif "MACD 200" in name: t, i, p = ticker, "1h", "100d"
                 elif "Gemini Velocity" in name: t, i, p = ticker, "15m", "30d"
                 elif "Volcanix" in name: t, i, p = ticker, "5m", "15d"
                 elif "BigD" in name:
@@ -1376,7 +2369,6 @@ def run_alpha_autotrader(mode="LIVE_MARKET"):
                     continue
                 elif "LittleD" in name: t, i, p = ticker, "1h", "60d"
                 elif "Double Break V3" in name or "Matt-Rapid" in name:
-                    # Fetch both 2m and 1d for V3
                     for nt, ni, np_ in [(ticker, "2m", "60d"), (ticker, "1d", "70d")]:
                         key = (nt, ni)
                         data_tasks[key] = max(data_tasks.get(key, "1d"), np_, key=parse_period_to_days)
@@ -1496,7 +2488,7 @@ def run_alpha_autotrader(mode="LIVE_MARKET"):
             else:
                 for ticker in assets:
                     df = PERSISTENT_DATA_CACHE.get((ticker, interval))
-                    if df is not None:
+                    if df is not None and mode not in ["TEST", "OFFLINE"]:
                         # Proposal 16: Dynamic Stale Tolerance (60m for scalps, 480m for hourly/swing)
                         stale_limit = 3600 # 60 mins default
                         if interval == "1h": stale_limit = 28800 # 8 hours
@@ -1508,15 +2500,27 @@ def run_alpha_autotrader(mode="LIVE_MARKET"):
                             log_engine(f"Warm cache stale ({(time.time()-last_ts)/60:.0f} min) for {ticker} — skipping.", level="warning")
                             df = None
 
-                    daily_df = PERSISTENT_DATA_CACHE.get((ticker, "1d")) if interval in ["2m", "5m"] else None
+                    daily_df = PERSISTENT_DATA_CACHE.get((ticker, "1d")) if (interval in ["2m", "5m"] or strat_type in ['apex', 'apex_short_etf', 's_series']) else None
                     h1_df = PERSISTENT_DATA_CACHE.get((ticker, "1h")) if strat_type == 'big_d' else None
-                    
+
+                    live_bar = False
+                    context_bytes = None
+                    if strat_type in sysd.SYSTEMATIC_TYPES:
+                        # Daily strategies are evaluated on the near-final bar
+                        # in their own window; everywhere else they would be
+                        # reading a partially formed bar.
+                        live_bar = (is_in_window("15:45-15:59")
+                                    or strat_type == sysd.SIG_TYPE_PEAD)
+                        context_bytes = pickle.dumps(_build_systematic_context(strat_type))
+
                     tasks.append({
                         'name': name, 'ticker': ticker, 'strat_type': strat_type,
                         'is_live': is_live,
                         'data_bytes': pickle.dumps(df.copy()) if df is not None else None,
                         'daily_bytes': pickle.dumps(daily_df.copy()) if daily_df is not None else None,
                         'h1_bytes': pickle.dumps(h1_df.copy()) if h1_df is not None else None,
+                        'live_bar': live_bar,
+                        'context_bytes': context_bytes,
                     })
 
     # Mark sleeping strategies on board immediately
@@ -1560,7 +2564,20 @@ def run_alpha_autotrader(mode="LIVE_MARKET"):
 
         # SIGNAL AUDIT TRACKING
         is_stale = False
-        if sig:
+        if sig and result.get('strat_type') in sysd.SYSTEMATIC_TYPES:
+            update = _process_systematic_signal(
+                name, ticker, sig, price, is_live, can_execute,
+                meta={
+                    'stop_price': result.get('stop_price'),
+                    'target_price': result.get('target_price'),
+                    'max_hold_days': result.get('max_hold_days'),
+                    'note': result.get('note', ''),
+                },
+                mode=mode,
+            )
+            if update:
+                latest_signals[name] = update
+        elif sig:
             update, active_count = process_signal_and_execute(
                 name, ticker, sig, price, is_live, can_execute,
                 active_count, active_positions,

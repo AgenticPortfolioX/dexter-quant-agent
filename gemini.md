@@ -12,7 +12,7 @@ You are a **Specialized Worker Agent** operating within this directory.
 
 ## 2. Operating Procedures
 - **Stay in Scope**: Do not attempt to access other project directories unless explicitly told by the Orchestrator.
-- **9:00 AM SOP**: Every morning at 9:00 AM EST, the agent MUST read [FailLog.md](file:///C:/Users/jmgra/antigravityagents/dexter-quant-agent/FailLog.md) BEFORE performing environment checks. Use the failure history to validate the current state (e.g., Bridge Handshake, Cache Freshness).
+- **9:00 AM PRE-MARKET SOP**: At 9:00 AM EST, the agent MUST execute the **9:00 AM PRE-MARKET FINAL CHECKLIST** in [FailLog.md](file:///C:/Users/jmgra/antigravityagents/dexter-quant-agent/FailLog.md) to ensure no zombie processes are stalling execution and the Bridge is authorized. This MUST be done before performing environment checks or reading failure history.
 - **Reporting**: Report all progress and blockers back to the Orchestrator Brain.
 - **Artifacts**: Save all tangible outputs (code, logs, summaries) in the root of this folder.
 - **README Updates**: WHENEVER a README file is updated, you MUST leave a US Eastern Time (EST) date and time stamp at the very top of the file in the format: `> 🕒 Last Updated: [DATE] [TIME] EST`.

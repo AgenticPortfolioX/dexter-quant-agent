@@ -142,16 +142,23 @@ class BigDStrategy:
         conf = self.confirm_mss_and_fvg(data, manip)
         if not conf['confirmed']: return None
         
-        # --- Inverse Mapping Logic ---
-        INVERSE_MAP = {"IBIT": "BITI", "ETHE": "SETH"}
+        # --- 2x Leveraged & Inverse Mapping Logic ---
+        # 2x Long: BITU (ProShares Ultra Bitcoin ETF)
+        # 2x Short: SBIT (ProShares UltraShort Bitcoin ETF)
+        LONG_MAP = {"IBIT": "BITU", "BITU": "BITU", "BTC-USD": "BITU", "BTC": "BITU"}
+        SHORT_MAP = {"IBIT": "SBIT", "BITU": "SBIT", "BTC-USD": "SBIT", "BTC": "SBIT", "ETHE": "SETH"}
         final_symbol = self.symbol
         final_direction = conf['direction']
         
-        # If it's a SELL signal and we have an inverse ETF, flip to BUY the inverse
-        if final_direction == 'SELL' and self.symbol in INVERSE_MAP:
-            final_symbol = INVERSE_MAP[self.symbol]
+        # If BUY signal on Bitcoin asset, route to 2x Long BITU
+        if final_direction == 'BUY' and self.symbol in LONG_MAP:
+            final_symbol = LONG_MAP[self.symbol]
+            print(f"  [BigD] Bullish setup on {self.symbol} -> Trading 2x LONG on {final_symbol}")
+        # If SELL signal, flip to BUY inverse ETF (2x Short SBIT for Bitcoin)
+        elif final_direction == 'SELL' and self.symbol in SHORT_MAP:
+            final_symbol = SHORT_MAP[self.symbol]
             final_direction = 'BUY'
-            print(f"  [BigD] Bearish setup on {self.symbol} -> Mapping to LONG on {final_symbol}")
+            print(f"  [BigD] Bearish setup on {self.symbol} -> Trading 2x SHORT via {final_symbol}")
         
         # Calculate Position (Simple 1% Risk)
         entry = conf['fvg_bottom'] if conf['direction'] == 'BUY' else conf['fvg_top']
@@ -171,7 +178,7 @@ class BigDStrategy:
 
 if __name__ == "__main__":
     import json
-    for symbol in ["IBIT", "ETHE", "CLNK"]:
+    for symbol in ["BITU", "IBIT", "ETHE", "CLNK"]:
         strat = BigDStrategy(symbol)
         signal = strat.scan()
         if signal:

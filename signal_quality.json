@@ -1,37 +1,69 @@
 {
-    "last_updated": "2026-02-24T17:20:55.789844-05:00",
+    "last_updated": "2026-10-30T17:00:03.073183-04:00",
+    "method": "percent_return_per_round_trip",
     "strategies": {
-        "Triple RSI Mean Reversion": {
-            "win_rate": 0,
-            "avg_pnl": 0,
-            "avg_win": 0,
-            "avg_loss": 0,
-            "total_trades": 0,
+        "LittleD (SFP)": {
+            "win_rate": 77.78,
+            "profit_factor": 5.83,
+            "total_trades": 9,
+            "avg_return_pct": 57.617,
+            "gross_win_pct": 625.98,
+            "gross_loss_pct": 107.43,
+            "score": 233.33
+        },
+        "Bollinger Bands (BB)": {
+            "win_rate": 28.57,
+            "profit_factor": 0.57,
+            "total_trades": 7,
+            "avg_return_pct": -0.23,
+            "gross_win_pct": 2.17,
+            "gross_loss_pct": 3.78,
+            "score": 75.59
+        },
+        "Shooting Star (SS)": {
+            "win_rate": 40.0,
+            "profit_factor": 0.59,
+            "total_trades": 15,
+            "avg_return_pct": -0.851,
+            "gross_win_pct": 18.5,
+            "gross_loss_pct": 31.27,
+            "score": 154.92
+        },
+        "Dual Thrust (DT)": {
+            "win_rate": 22.73,
+            "profit_factor": 0.0,
+            "total_trades": 88,
+            "avg_return_pct": -81.996,
+            "gross_win_pct": 36.16,
+            "gross_loss_pct": 7251.84,
+            "score": 213.2
+        },
+        "Heikin Ashi (HA)": {
+            "win_rate": 54.76,
+            "profit_factor": 0.88,
+            "total_trades": 42,
+            "avg_return_pct": -0.31,
+            "gross_win_pct": 97.97,
+            "gross_loss_pct": 110.98,
+            "score": 354.9
+        },
+        "Awesome Oscillator (AO)": {
+            "win_rate": 0.0,
+            "profit_factor": 0.0,
+            "total_trades": 5,
+            "avg_return_pct": -3.125,
+            "gross_win_pct": 0.0,
+            "gross_loss_pct": 15.62,
             "score": 0.0
         },
-        "Noon-Curve (Lunchbox)": {
-            "win_rate": 0,
-            "avg_pnl": 0,
-            "avg_win": 0,
-            "avg_loss": 0,
-            "total_trades": 0,
-            "score": 0.0
-        },
-        "Initial Balance (80%)": {
-            "win_rate": 0,
-            "avg_pnl": 0,
-            "avg_win": 0,
-            "avg_loss": 0,
-            "total_trades": 0,
-            "score": 0.0
-        },
-        "London Displacement": {
-            "win_rate": 0,
-            "avg_pnl": 0,
-            "avg_win": 0,
-            "avg_loss": 0,
-            "total_trades": 0,
-            "score": 0.0
+        "MACD Oscillator (MACD)": {
+            "win_rate": 50.0,
+            "profit_factor": 0.18,
+            "total_trades": 26,
+            "avg_return_pct": -12.391,
+            "gross_win_pct": 71.59,
+            "gross_loss_pct": 393.74,
+            "score": 254.95
         }
     }
 }

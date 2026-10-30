@@ -1,8 +1,8 @@
 """
-Power of 3 (PO3 / AMD) Strategy - IBIT Edition
--------------------------------------------------
+Power of 3 (PO3 / AMD) Strategy - BITU / SBIT 2x Edition
+---------------------------------------------------------
 Classification: SUCCESSFUL STRATEGY
-Validated Symbol: IBIT
+Validated Execution: BITU (2x Long) & SBIT (2x Short)
 Architecture: Accumulation-Manipulation-Distribution (AMD)
 """
 
@@ -14,8 +14,8 @@ import pytz
 from typing import Dict, List, Optional
 
 class PowerOf3Strategy:
-    def __init__(self, symbol: str = "IBIT"):
-        self.symbol = symbol  # Optimized for IBIT
+    def __init__(self, symbol: str = "BITU"):
+        self.symbol = symbol  # Default 2x Long: BITU
         self.tz = pytz.timezone('US/Eastern')
         self.midnight_open: Optional[float] = None
         self.daily_bias: str = "Neutral"
@@ -183,7 +183,19 @@ class PowerOf3Strategy:
         conf = self.confirm_mss_and_fvg(df_5m, manip)
         if not conf['confirmed']: return None
         
-        return {'direction': conf['direction'], 'entry': conf['fvg_bottom'] if conf['direction'] == 'BUY' else conf['fvg_top'], 'stop_loss': manip['sweep_level'], 'timestamp': conf['time']}
+        # 2x Leveraged ETF Execution Mapping
+        LONG_MAP = {"IBIT": "BITU", "BITU": "BITU", "BTC-USD": "BITU", "BTC": "BITU"}
+        SHORT_MAP = {"IBIT": "SBIT", "BITU": "SBIT", "BTC-USD": "SBIT", "BTC": "SBIT"}
+        exec_symbol = LONG_MAP.get(self.symbol, "BITU") if conf['direction'] == 'BUY' else SHORT_MAP.get(self.symbol, "SBIT")
+
+        return {
+            'direction': conf['direction'],
+            'exec_symbol': exec_symbol,
+            'exec_action': 'BUY',  # Buy BITU for long, Buy SBIT for short
+            'entry': conf['fvg_bottom'] if conf['direction'] == 'BUY' else conf['fvg_top'],
+            'stop_loss': manip['sweep_level'],
+            'timestamp': conf['time']
+        }
 
     def calculate_position(self, signal: Dict, account_balance: float = 10000) -> Dict:
         """IBIT-specific 1% risk position sizing."""

@@ -44,15 +44,14 @@ def dual_thrust_calculation(df, rg=4, k1=0.2, k2=0.2):
     return signals
 
 def run_strategy():
-    # Top 25 Assets from Phase 2 Backtest
+    # Only Cryptos Extracted from Main Dual Thrust
     assets = [
-        "SOL-USD", "ADA-USD", "SMCI", "XRP-USD", "NEAR-USD", "PLTR", "MU", "DOGE-USD", 
-        "COIN", "NET", "NVDA", "AVAX-USD", "DOT-USD", "BNB-USD", "ALGO-USD", "PATH", 
-        "ARM", "CAT", "AVGO", "MSTR", "SLV", "KLAC", "TSM", "SHOP", "ARKW"
+        "SOL-USD", "ADA-USD", "XRP-USD", "NEAR-USD", "DOGE-USD", 
+        "AVAX-USD", "DOT-USD", "BNB-USD", "ALGO-USD"
     ]
     
-    print(f"--- Dexter Quant: Dual Thrust (DT) Testing ---")
-    print(f"Assets: {len(assets)} tickers identified")
+    print(f"--- Dexter Quant: Dual Thrust (DT) Crypto Edition Testing ---")
+    print(f"Assets: {len(assets)} crypto tickers identified")
     
     for ticker in assets:
         print(f"\nProcessing {ticker}...")
@@ -76,9 +75,9 @@ def run_strategy():
             print(f"Buy Level: {buy_line:.2f} | Sell Level: {sell_line:.2f}")
             
             if last_signal == 1:
-                print(f"*** SIGNAL DETECTED: [BUY] on {ticker} (DT Breakout) ***")
+                print(f"*** SIGNAL DETECTED: [BUY] on {ticker} (DT Crypto Breakout) ***")
             elif last_signal == -1:
-                print(f"*** SIGNAL DETECTED: [SELL] on {ticker} (DT Breakout) ***")
+                print(f"*** SIGNAL DETECTED: [SELL] on {ticker} (DT Crypto Breakout) ***")
             else:
                 print(f"Status: Neutral")
                 

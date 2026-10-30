@@ -369,7 +369,7 @@ def run_bulk_backtest():
         # Commodities (3)
         "GC=F", "SI=F", "CL=F",
         # Crypto (9)
-        "IBIT", "CLNK", "ETHE", "IREN", "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD",
+        "BITU", "CLNK", "ETHE", "IREN", "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD",
         # Equities (Tech) (5)
         "AAPL", "MSFT", "NVDA", "TSLA", "AMZN"
     ]

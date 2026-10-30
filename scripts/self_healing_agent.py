@@ -23,12 +23,22 @@ def is_port_open(port):
         return s.connect_ex(('localhost', port)) == 0
 
 def check_bridge():
-    """Ensures Robinhood Bridge is online on port 5005."""
-    if is_port_open(5005):
-        log_healing("OK: Robinhood Bridge is online.")
-        return True, "Online"
+    """Ensures Robinhood Bridge is online and authenticated on port 5005."""
+    import requests
+    try:
+        r = requests.get("http://127.0.0.1:5005/health", timeout=5)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("logged_in"):
+                log_healing("OK: Robinhood Bridge is online and authenticated.")
+                return True, "Authenticated"
+            else:
+                log_healing("FAIL: Bridge is online but NOT authenticated (MFA/Logic Error).")
+                return False, "Not Authenticated"
+    except Exception:
+        pass
     
-    log_healing("CHECK: Robinhood Bridge is offline. Attempting restart...")
+    log_healing("CHECK: Robinhood Bridge is offline or unreachable. Attempting restart...")
     try:
         # Start in background with pythonw
         subprocess.Popen(
@@ -36,13 +46,19 @@ def check_bridge():
             cwd=DEXTER_ROOT,
             creationflags=subprocess.CREATE_NO_WINDOW
         )
-        time.sleep(5) # Wait for spin up
-        if is_port_open(5005):
-            log_healing("OK: Bridge successfully restarted.")
-            return True, "Restarted"
-        else:
-            log_healing("FAIL: Bridge restart failed.")
-            return False, "Failed to Start"
+        time.sleep(10) # Wait for spin up and login attempt
+        
+        # Verify post-restart
+        try:
+            r = requests.get("http://127.0.0.1:5005/health", timeout=5)
+            if r.status_code == 200 and r.json().get("logged_in"):
+                log_healing("OK: Bridge successfully restarted and authenticated.")
+                return True, "Restarted & Authenticated"
+        except:
+            pass
+            
+        log_healing("FAIL: Bridge restart failed to achieve authentication.")
+        return False, "Failed to Authenticate"
     except Exception as e:
         log_healing(f"ERROR: Bridge restart error: {e}")
         return False, f"Error: {e}"

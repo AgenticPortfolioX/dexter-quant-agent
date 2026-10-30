@@ -1,13 +1,22 @@
 
 import os
+import sys
 import json
-from flask import Flask, request, jsonify
-import robin_stocks.robinhood as r
 import pyotp
 import datetime
+import traceback
+from flask import Flask, request, jsonify
+import robin_stocks.robinhood as r
 from dotenv import load_dotenv
 
-load_dotenv()
+# Ensure UTF-8 output on Windows
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 app = Flask(__name__)
 
@@ -50,14 +59,30 @@ def get_positions():
         if not login_to_robinhood():
             return jsonify({"error": "Login failed"}), 500
     try:
-        stock_positions = r.build_holdings()
+        try:
+            stock_positions = r.build_holdings()
+        except Exception:
+            # Fallback for accounts where build_holdings fails (e.g. non-standard brokerage)
+            raw_positions = r.get_all_positions()
+            stock_positions = {}
+            for pos in raw_positions:
+                quantity = float(pos['quantity'])
+                if quantity > 0:
+                    symbol = r.get_symbol_by_url(pos['instrument'])
+                    stock_positions[symbol] = {
+                        "price": 0.0, # Will be filled by Alpha Engine anyway
+                        "quantity": str(quantity),
+                        "average_buy_price": pos['average_buy_price'],
+                        "equity": "0.0",
+                        "percent_change": "0.0",
+                        "type": "stock"
+                    }
+        
         option_positions = r.get_all_option_positions()
         return jsonify({"stocks": stock_positions, "options": option_positions})
     except Exception as e:
-        if login_to_robinhood():
-             stock_positions = r.build_holdings()
-             option_positions = r.get_all_option_positions()
-             return jsonify({"stocks": stock_positions, "options": option_positions})
+        print("Error in get_positions:")
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 @app.route('/cash', methods=['GET'])
@@ -138,10 +163,21 @@ def place_order():
             f.write(f"[{now_str}] Order Request for {symbol}: {json.dumps(data)}\n")
             f.write(f"[{now_str}] Order Response: {json.dumps(res)}\n")
 
-        if isinstance(res, dict) and (res.get('detail') == 'Authentication credentials were not provided.' or 'error' in str(res).lower()):
-             if login_to_robinhood():
-                 return place_order() 
-        
+        # FIX 4: One-shot re-auth retry — NO recursive call to prevent infinite-loop risk.
+        if isinstance(res, dict) and res.get('detail') == 'Authentication credentials were not provided.':
+            print("[BRIDGE] Session expired. Attempting re-login (1 retry)...")
+            if login_to_robinhood():
+                try:
+                    if asset_type == "stock":
+                        if action == "buy":
+                            res = r.order_buy_market(symbol, quantity, timeInForce='gfd') if order_type == "market" else r.order_buy_limit(symbol, quantity, price, timeInForce='gfd')
+                        elif action == "sell":
+                            res = r.order_sell_market(symbol, quantity, timeInForce='gfd') if order_type == "market" else r.order_sell_limit(symbol, quantity, price, timeInForce='gfd')
+                except Exception as retry_err:
+                    return jsonify({"error": f"Retry failed after re-auth: {str(retry_err)}"}), 500
+            else:
+                return jsonify({"error": "Re-authentication failed. Manual login required."}), 401
+
         error_keys = ['non_field_errors', 'detail', 'reject_reason', 'error']
         if isinstance(res, dict) and any(res.get(k) is not None for k in error_keys):
             return jsonify(res), 400
@@ -151,5 +187,11 @@ def place_order():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(1.0)
+        if s.connect_ex(('127.0.0.1', 5005)) == 0:
+            print("[BRIDGE] Another bridge_server.py instance is already listening on 127.0.0.1:5005. Exiting.")
+            sys.exit(0)
     login_to_robinhood()
-    app.run(host='0.0.0.0', port=5005)
+    app.run(host='127.0.0.1', port=5005, threaded=True, use_reloader=False)

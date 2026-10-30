@@ -1,0 +1,8 @@
+{
+  "id": 1774021091193,
+  "timestamp": "2026-03-20T15:38:11.193Z",
+  "target": "dexter",
+  "command": "GET_TP_SL_LEVELS",
+  "params": {},
+  "source": "telegram"
+}

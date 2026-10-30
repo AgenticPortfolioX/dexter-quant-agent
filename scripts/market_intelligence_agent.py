@@ -14,6 +14,13 @@ import time
 from datetime import datetime
 import pytz
 
+# FIX 1: Set stdout/stderr encoding to utf-8 to prevent UnicodeEncodeError on Windows cp1252 terminals
+import io
+if hasattr(sys.stdout, 'buffer'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'buffer'):
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 # Add project root to path
 PROJECT_ROOT = r"C:\Users\jmgra\antigravityagents\dexter-quant-agent"
 if PROJECT_ROOT not in sys.path:

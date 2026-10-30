@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./quant-env/Scripts/python.exe -c \"import yfinance as yf, pandas as pd; d=yf.download\\('SPY', start='2024-01-01', end='2024-02-01', progress=False, auto_adjust=True\\); print\\(d.shape\\); print\\(d.tail\\(2\\)\\)\")",
+      "Bash(curl -s -m 15 \"https://query1.finance.yahoo.com/v8/finance/chart/SPY?range=5d&interval=1d\")",
+      "Bash(echo \"EXIT:$?\")",
+      "Read(//c/Users/jmgra/antigravityagents/.agent/reporting-repo/dexter-quant/logs/live_trading/**)",
+      "Bash(./quant-env/Scripts/python.exe -)",
+      "Bash(sed 's/_[0-9].*//')",
+      "Bash(/c/Users/jmgra/antigravityagents/dexter-quant-agent/quant-env/Scripts/python.exe -I dexter_review_backtest.py)",
+      "Bash(/c/Users/jmgra/antigravityagents/dexter-quant-agent/quant-env/Scripts/python.exe -I -)",
+      "Bash(./quant-env/Scripts/python.exe -c \"import sys; print\\(sys.version\\); import pandas, numpy, yfinance; print\\('pandas',pandas.__version__,'numpy',numpy.__version__,'yfinance',yfinance.__version__\\)\")",
+      "Bash(./quant-env/Scripts/python.exe -m pytest --version)",
+      "Bash(./quant-env/Scripts/python.exe -m unittest discover -s tests -v)",
+      "Bash(./quant-env/Scripts/python.exe tests/test_etf_exits_and_circuit_breaker.py)",
+      "Bash(./quant-env/Scripts/python.exe tests/test_reliability_and_bridge_manager.py)",
+      "Bash(stat -c '%y %n' signal_quality.json postmortem.md dashboard/LIVE_STRATEGY_BOARD.md 2>/dev/null)",
+      "Read(//c/Users/jmgra/antigravityagents/dexter-quant-agent/**)",
+      "Bash(python -c ' *)",
+      "Bash(./quant-env/Scripts/python.exe -c \"import sys; print\\(sys.version\\)\")",
+      "Bash(./quant-env/Scripts/python.exe -m py_compile live_monitor.py scripts/board_io.py scripts/rebuild_board.py scripts/pead_scanner.py scripts/run_systematic_exits.py scripts/signal_quality_tracker.py scripts/warm_up_agent.py strategies/live_trading/systematic_daily/systematic_daily.py strategies/live_trading/systematic_daily/position_book.py strategies/validation/alpha_autotrader.py)",
+      "Bash(./quant-env/Scripts/python.exe -c ' *)",
+      "Bash(./quant-env/Scripts/python.exe tests/test_systematic_daily.py)",
+      "Bash(./quant-env/Scripts/python.exe scripts/rebuild_board.py)",
+      "Bash(./quant-env/Scripts/python.exe -m py_compile live_monitor.py strategies/validation/alpha_autotrader.py strategies/live_trading/systematic_daily/systematic_daily.py strategies/live_trading/systematic_daily/position_book.py scripts/board_io.py scripts/rebuild_board.py scripts/signal_quality_tracker.py scripts/pead_scanner.py scripts/run_systematic_exits.py scripts/warm_up_agent.py tests/test_systematic_daily.py)"
+    ]
+  }
+}

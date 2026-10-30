@@ -61,7 +61,7 @@ class ApexPivotRSIDivergenceStrategy:
     """
 
     def __init__(self, tickers: Optional[List[str]] = None):
-        self.tickers = tickers or ["SPY", "QQQ", "AAPL", "NVDA", "MSFT", "AMZN"]
+        self.tickers = tickers or ["AMD", "PLTR", "IWM", "SMCI", "MSTR", "AMZN", "NVDA", "META", "CRWD", "ABNB", "SNOW", "GOOGL", "XBI", "TSLA", "HOOD", "TQQQ", "UBER", "GLD", "LRCX", "AAPL"]
         self.tz = pytz.timezone('US/Eastern')
         self.atr_period = 14
         self.rsi_period = 14

@@ -10,11 +10,10 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from smc_strategy import SmartMoneyStrategy
 
-def ibit_smc_scanner():
-    ticker = "IBIT"
+def btc_2x_smc_scanner(ticker: str = "BITU"):
     strategy = SmartMoneyStrategy()
     
-    print(f"--- IBIT SMART MONEY STRATEGY SCANNER [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ---")
+    print(f"--- BITCOIN 2x LEVERAGED SMC SCANNER (BITU/SBIT) [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ---")
     
     try:
         # Fetch latest data
@@ -23,7 +22,7 @@ def ibit_smc_scanner():
             df.columns = df.columns.get_level_values(0)
         
         if df.empty:
-            print("No data found for IBIT.")
+            print(f"No data found for {ticker}.")
             return
             
         # Run Strategy
@@ -36,18 +35,17 @@ def ibit_smc_scanner():
         mss = last_row['mss_signal']
         
         if sig in ['BUY', 'SELL']:
-            print(f"!!! SIGNAL DETECTED: IBIT -> {sig} !!!")
-            if sig == 'BUY':
-                print(f"Level: {last_row['bullish_fvg_top']}")
-            else:
-                print(f"Level: {last_row['bearish_fvg_bottom']}")
+            target_symbol = "BITU" if sig == 'BUY' else "SBIT"
+            action_desc = "2x LONG (Open BITU)" if sig == 'BUY' else "2x SHORT (Open SBIT)"
+            price_level = last_row['bullish_fvg_top'] if sig == 'BUY' else last_row['bearish_fvg_bottom']
+            print(f"!!! SIGNAL DETECTED: {ticker} -> {sig} => EXECUTING {action_desc} @ {price_level:.2f} !!!")
         elif mss:
             print(f"Structure Shift Detected: {mss}. Watching for retrace.")
         else:
-            print("No active signals for IBIT.")
+            print(f"No active signals for {ticker}.")
 
     except Exception as e:
-        print(f"Error scanning IBIT: {e}")
+        print(f"Error scanning {ticker}: {e}")
 
 if __name__ == "__main__":
-    ibit_smc_scanner()
+    btc_2x_smc_scanner("BITU")

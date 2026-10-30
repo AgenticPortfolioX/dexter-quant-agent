@@ -1,157 +1,171 @@
 """
 Signal Quality Feedback Loop Agent (Proposal 8)
 ==============================================
-Analyzes 'execution.log' to calculate:
-- Strategy Win Rate (%)
-- Average Profit/Loss ($)
-- Total Trades
-- Last Strategy Performance
-Saves results to 'signal_quality.json'.
+Parses logs/live_trading/execution.log and writes signal_quality.json.
+
+What changed
+------------
+The original computed P&L as a *price difference per share*, which makes a
+$500 ETF trade look 100x more important than a $5 stock and makes profit
+factor meaningless.  This version pairs entries and exits and measures
+**percentage return per round trip**, so:
+
+  * profit factor is comparable across symbols and position sizes
+  * a strategy's stats can drive sizing (see alpha_autotrader.quality_verdict)
+  * a strategy with one lucky huge trade cannot mask a losing record
+
+`total_trades` counts completed round trips (entries without an exit are not
+scored).
 """
-import os
-import sys
 import json
+import os
 import re
 from datetime import datetime
+
 import pytz
 
-# Project paths
 PROJECT_ROOT = r"C:\Users\jmgra\antigravityagents\dexter-quant-agent"
 REPORTING_ROOT = r"C:\Users\jmgra\antigravityagents\.agent\reporting-repo\dexter-quant\logs"
-EXECUTION_LOG = os.path.join(REPORTING_ROOT, 'live_trading', 'execution.log')
-QUALITY_FILE = os.path.join(PROJECT_ROOT, 'signal_quality.json')
+EXECUTION_LOG = os.path.join(REPORTING_ROOT, "live_trading", "execution.log")
+QUALITY_FILE = os.path.join(PROJECT_ROOT, "signal_quality.json")
 
-EST = pytz.timezone('US/Eastern')
+EST = pytz.timezone("US/Eastern")
 
-def parse_execution_log():
-    """Parse execution.log and group by strategy."""
-    if not os.path.exists(EXECUTION_LOG):
-        print(f"  ❌ Log file not found at {EXECUTION_LOG}")
+ENTRY_ACTIONS = ("BUY", "LONG", "SHORT")
+EXIT_ACTIONS = ("EXIT", "SELL", "CLOSE")
+
+
+def parse_execution_log(path=EXECUTION_LOG):
+    """Return {(strategy, ticker): [event, ...]} in file order."""
+    if not os.path.exists(path):
+        print(f"  ❌ Log file not found at {path}")
         return {}
+    if os.path.getsize(path) > 200 * 1024 * 1024:
+        print("  ⚠️  execution.log exceeds 200MB — scoring the tail only")
 
     trades = {}
     count = 0
-    try:
-        with open(EXECUTION_LOG, 'r', encoding='utf-8') as f:
-            for line in f:
-                if "[LIVE-EXEC]" not in line: continue
-                
-                try:
-                    # Line format: [LIVE-EXEC] [TS] STRAT | TICKER | ACTION @ $PRICE
-                    # Step 1: Remove prefix
-                    line_clean = line.replace("[LIVE-EXEC]", "").strip()
-                    
-                    # Step 2: Split by first "]" to get timestamp
-                    if "]" not in line_clean: continue
-                    ts_part, content = line_clean.split("]", 1)
-                    ts_str = ts_part.replace("[", "").strip()
-                    
-                    # Step 3: Split content by "|"
-                    parts = content.split("|")
-                    if len(parts) < 3: continue
-                    
-                    strategy = parts[0].strip()
-                    ticker = parts[1].strip()
-                    action_part = parts[2].strip() # "EXIT @ $608.81"
-                    
-                    # Step 4: Parse action and price
-                    if " @ $" not in action_part: continue
-                    action, price_str = action_part.split(" @ $")
-                    
-                    action = action.upper().strip()
-                    price_match = re.search(r"(\d+\.?\d*)", price_str)
-                    if not price_match: continue
-                    price = float(price_match.group(1))
-                    
-                    key = (strategy, ticker)
-                    if key not in trades: trades[key] = []
-                    trades[key].append({
-                        "time": ts_str,
-                        "action": action,
-                        "price": price
-                    })
-                    count += 1
-                except:
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            if "[LIVE-EXEC]" not in line:
+                continue
+            try:
+                body = line.split("[LIVE-EXEC]", 1)[1].strip()
+                # Optional [timestamp] prefix
+                ts_str = ""
+                if body.startswith("["):
+                    ts_str, body = body[1:].split("]", 1)
+                    body = body.strip()
+
+                parts = body.split("|")
+                if len(parts) < 3:
                     continue
-    except Exception as e:
-        print(f"Error parsing log: {e}")
-    
-    print(f"  🔍 Found {count} raw events in log.")
+                strategy = parts[0].strip()
+                ticker = parts[1].strip()
+                action_part = parts[2].strip()
+                if " @ $" not in action_part:
+                    continue
+
+                action, price_str = action_part.split(" @ $", 1)
+                action = action.upper().strip()
+                m = re.search(r"(\d+(?:\.\d+)?)", price_str)
+                if not m:
+                    continue
+
+                trades.setdefault((strategy, ticker), []).append({
+                    "time": ts_str.strip(),
+                    "action": action,
+                    "price": float(m.group(1)),
+                })
+                count += 1
+            except Exception:
+                continue
+
+    print(f"  🔍 Found {count} raw execution events.")
     return trades
 
+
 def calculate_stats(trades):
-    """Analyze trade pairs to determine performance."""
-    stats = {}
-    
+    """Pair entries with exits and measure return per round trip."""
+    buckets = {}
+
     for (strategy, ticker), history in trades.items():
-        if strategy not in stats:
-            stats[strategy] = {"wins": 0, "losses": 0, "total_pnl": 0.0, "count": 0, "win_amt": 0.0, "loss_amt": 0.0}
-            
-        # Robust pairing: Sort by time
-        history.sort(key=lambda x: x['time'])
-        
-        entries = [] # Stack of entries for this ticker/strat
+        bucket = buckets.setdefault(strategy, {
+            "wins": 0, "losses": 0,
+            "gross_win_pct": 0.0, "gross_loss_pct": 0.0,
+            "returns": [],
+        })
+
+        entries = []
         for event in history:
-            action = event['action']
-            if "LONG" in action or "SHORT" in action or "BUY" in action:
+            action = event["action"]
+            if any(a in action for a in ENTRY_ACTIONS):
                 entries.append(event)
-            elif ("EXIT" in action or "SELL" in action or "CLOSE" in action) and entries:
-                # Pair with the most recent entry (LIFO)
-                entry = entries.pop()
-                pnl = 0
-                if "LONG" in entry['action'] or "BUY" in entry['action']:
-                    pnl = event['price'] - entry['price']
-                else: # Short
-                    pnl = entry['price'] - event['price']
-                
-                stats[strategy]["count"] += 1
-                stats[strategy]["total_pnl"] += pnl
-                if pnl > 0:
-                    stats[strategy]["wins"] += 1
-                    stats[strategy]["win_amt"] += pnl
+            elif any(a in action for a in EXIT_ACTIONS) and entries:
+                entry = entries.pop()  # LIFO
+                entry_px = entry["price"]
+                if entry_px <= 0:
+                    continue
+                if "SHORT" in entry["action"]:
+                    ret = (entry_px - event["price"]) / entry_px
                 else:
-                    stats[strategy]["losses"] += 1
-                    stats[strategy]["loss_amt"] += abs(pnl)
-                
-    # Finalize win rates
-    final_stats = {}
-    for strat, data in stats.items():
+                    ret = (event["price"] - entry_px) / entry_px
+
+                bucket["returns"].append(ret)
+                if ret > 0:
+                    bucket["wins"] += 1
+                    bucket["gross_win_pct"] += ret
+                else:
+                    bucket["losses"] += 1
+                    bucket["gross_loss_pct"] += abs(ret)
+
+    final = {}
+    for strategy, data in buckets.items():
         total = data["wins"] + data["losses"]
-        win_rate = (data["wins"] / total * 100) if total > 0 else 0
-        avg_win = data["win_amt"] / data["wins"] if data["wins"] > 0 else 0
-        avg_loss = data["loss_amt"] / data["losses"] if data["losses"] > 0 else 0
-        
-        final_stats[strat] = {
+        if total == 0:
+            continue
+        win_rate = data["wins"] / total * 100.0
+        if data["gross_loss_pct"] > 0:
+            profit_factor = data["gross_win_pct"] / data["gross_loss_pct"]
+        else:
+            # No losing trades: report a finite sentinel rather than infinity
+            profit_factor = 99.0 if data["gross_win_pct"] > 0 else 0.0
+
+        final[strategy] = {
             "win_rate": round(win_rate, 2),
-            "avg_pnl": round(data["total_pnl"] / total, 4) if total > 0 else 0,
-            "avg_win": round(avg_win, 4),
-            "avg_loss": round(avg_loss, 4),
+            "profit_factor": round(profit_factor, 2),
             "total_trades": total,
-            "score": round(win_rate * (total ** 0.5), 2) # Weighted score
+            "avg_return_pct": round(sum(data["returns"]) / total * 100.0, 3),
+            "gross_win_pct": round(data["gross_win_pct"] * 100.0, 2),
+            "gross_loss_pct": round(data["gross_loss_pct"] * 100.0, 2),
+            "score": round(win_rate * (total ** 0.5), 2),
         }
-        
-    return final_stats
+
+    return final
+
 
 def run_feedback_loop():
     print(f"[{datetime.now(EST).strftime('%H:%M:%S')}] 📉 SIGNAL QUALITY AGENT — Processing logs...")
-    
+
     trades = parse_execution_log()
-    if not trades:
-        print("  ⚠️ No trades found in execution.log.")
-        return
-        
     stats = calculate_stats(trades)
-    
-    with open(QUALITY_FILE, 'w') as f:
+
+    os.makedirs(os.path.dirname(QUALITY_FILE), exist_ok=True)
+    tmp = QUALITY_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump({
             "last_updated": datetime.now(EST).isoformat(),
-            "strategies": stats
+            "method": "percent_return_per_round_trip",
+            "strategies": stats,
         }, f, indent=4)
-        
+    os.replace(tmp, QUALITY_FILE)
+
     print(f"  ✅ Analyzed {len(stats)} strategies.")
-    for strat, s in stats.items():
-        print(f"  - {strat}: {s['win_rate']}% Win Rate | {s['total_trades']} Trades")
+    for strat, s in sorted(stats.items(), key=lambda kv: kv[1]["score"], reverse=True):
+        print(f"  - {strat}: {s['win_rate']}% win | PF {s['profit_factor']} | "
+              f"{s['total_trades']} trades")
     print(f"  ✅ Report saved to {QUALITY_FILE}")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     run_feedback_loop()

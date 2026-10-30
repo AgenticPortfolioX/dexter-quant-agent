@@ -105,3 +105,22 @@ ENV/
 *.csv
 *.html
 *.log
+
+
+# Security & Runtime Exclusions
+*.env
+config/*.env
+quant-env/
+cache/
+logs/
+scratch/
+tmp/
+*.err
+login_output.txt
+portfolio_debug.txt
+temp_exec_tail.txt
+monitor.lock
+.last_audit_date
+.last_exit_date
+.last_quality_date
+.last_pead_scan_date

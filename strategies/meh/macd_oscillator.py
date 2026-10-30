@@ -18,7 +18,7 @@ def macd_oscillator_calculation(df, ma1=12, ma2=26):
     
     signals['positions'] = 0
     # Use integer-based location for indexing safely
-    signals.at[signals.index[ma1:], 'positions'] = np.where(signals['ma1'].iloc[ma1:] >= signals['ma2'].iloc[ma1:], 1, 0)
+    signals.loc[signals.index[ma1:], 'positions'] = np.where(signals['ma1'].iloc[ma1:] >= signals['ma2'].iloc[ma1:], 1, 0)
     
     signals['signals'] = signals['positions'].diff()
     signals['oscillator'] = signals['ma1'] - signals['ma2']

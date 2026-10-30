@@ -26,7 +26,8 @@ def generate_bb_signals(df, alpha_pct=0.01, beta_pct=0.005):
     
     # Simpler daily BB strategy: BUY when price <= lower band * (1 + alpha_pct)
     # SELL when price >= upper band * (1 - beta_pct)
-    in_position = False
+    # Signal generation: 1 for Long, -1 for Short, 0 for Neutral
+    current_signal = 0
     for i in range(1, len(df)):
         price = df['Close'].iloc[i]
         low = df['lower band'].iloc[i]
@@ -34,14 +35,13 @@ def generate_bb_signals(df, alpha_pct=0.01, beta_pct=0.005):
         
         if np.isnan(low) or np.isnan(high): continue
 
-        if not in_position:
-            if price <= low * (1 + alpha_pct):
-                df.at[df.index[i], 'signals'] = 1
-                in_position = True
-        else:
-            if price >= high * (1 - beta_pct):
-                df.at[df.index[i], 'signals'] = -1
-                in_position = False
+        # Mean Reversion / Breakout reversal logic
+        if price <= low * (1 + alpha_pct):
+            current_signal = 1
+        elif price >= high * (1 - beta_pct):
+            current_signal = -1
+        
+        df.at[df.index[i], 'signals'] = current_signal
                 
     return df
 

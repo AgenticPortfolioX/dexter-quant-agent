@@ -39,28 +39,28 @@ def generate_ha_signals(df, stls=3):
     data['signals'] = 0
     data['cumsum'] = 0
     
+    # Signal generation: 1 for Long, -1 for Short, 0 for Neutral
+    current_signal = 0
     for n in range(1, len(data)):
-        # Long triggered (Bullish HA candle with no lower shadow)
-        if (data['HA open'].iloc[n] > data['HA close'].iloc[n] and 
-            data['HA open'].iloc[n] == data['HA high'].iloc[n] and
-            np.abs(data['HA open'].iloc[n] - data['HA close'].iloc[n]) > np.abs(data['HA open'].iloc[n-1] - data['HA close'].iloc[n-1]) and
-            data['HA open'].iloc[n-1] > data['HA close'].iloc[n-1]):
-            
-            data.at[data.index[n], 'signals'] = 1
-            data['cumsum'] = data['signals'].cumsum()
-            if data['cumsum'].iloc[n] > stls:
-                data.at[data.index[n], 'signals'] = 0
+        ha_open = data['HA open'].iloc[n]
+        ha_close = data['HA close'].iloc[n]
+        ha_high = data['HA high'].iloc[n]
+        ha_low = data['HA low'].iloc[n]
         
-        # Exit positions (Bearish HA candle with no upper shadow)
-        elif (data['HA open'].iloc[n] < data['HA close'].iloc[n] and 
-              data['HA open'].iloc[n] == data['HA low'].iloc[n] and 
-              data['HA open'].iloc[n-1] < data['HA close'].iloc[n-1]):
+        # Bullish HA: HA Close > HA Open, no lower wick
+        is_bullish = ha_close > ha_open and ha_open == ha_low
+        # Bearish HA: HA Open > HA Close, no upper wick
+        is_bearish = ha_open > ha_close and ha_open == ha_high
+        
+        if is_bullish:
+            current_signal = 1
+        elif is_bearish:
+            current_signal = -1
+        else:
+            # Reversal candles (with wicks on both sides) set signal to 0 (Neutral/Exit)
+            current_signal = 0
             
-            data['cumsum'] = data['signals'].cumsum()
-            if data['cumsum'].iloc[n] > 0:
-                data.at[data.index[n], 'signals'] = -1 * data['cumsum'].iloc[n-1]
-            else:
-                data.at[data.index[n], 'signals'] = 0
+        data.at[data.index[n], 'signals'] = current_signal
     
     return data
 

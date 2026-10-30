@@ -3,6 +3,12 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import warnings
+import os
+import sys
+
+# Add project root to path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from scripts.slack_notifier import send_dexter_slack_alert
 
 warnings.filterwarnings('ignore')
 
@@ -209,6 +215,27 @@ def main():
         print("No signals triggered today.")
     else:
         print(f"Total Signals Detected Today: {signals_found}")
+        
+        # Slack Summary Alert
+        report = f"📊 *DEXTER SIGNAL DISCOVERY: {END_DATE.strftime('%Y-%m-%d')}*\n"
+        report += "━" * 15 + "\n"
+        for strat_name, func in strategy_funcs.items():
+            assets_to_check = STRATEGIES_ASSETS[strat_name]
+            found_for_strat = []
+            for asset in assets_to_check:
+                try:
+                    df = fetch_data(asset)
+                    if not df.empty and func(df.copy()):
+                        found_for_strat.append(asset)
+                except: pass
+            
+            if found_for_strat:
+                report += f"✅ *{strat_name}*\n"
+                for s in found_for_strat:
+                    report += f"  • {s}\n"
+        
+        report += f"\n*Total Signals Detected*: {signals_found}"
+        send_dexter_slack_alert(report)
 
 if __name__ == "__main__":
     main()
